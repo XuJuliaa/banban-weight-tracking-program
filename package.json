@@ -1,0 +1,25 @@
+{
+  "name": "banban-weight-tracking-program",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "sample-data": "node scripts/generate-sample-data.mjs",
+    "sample-food": "node scripts/generate-food-data.mts",
+    "sample-exercise": "node scripts/generate-exercise-data.mts"
+  },
+  "dependencies": {
+    "idb-keyval": "^6.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.3"
+  }
+}
