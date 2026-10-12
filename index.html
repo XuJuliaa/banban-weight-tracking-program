@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#af5a3f" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <title>Banban Weight Tracker</title>
+    <script>
+      // Apply the saved color theme before the page paints, so it doesn't flash the default first.
+      try {
+        let palette = localStorage.getItem('palette');
+        if (palette === 'indigo') palette = 'blue'; // renamed
+        if (palette && palette !== 'coral') document.documentElement.dataset.palette = palette;
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="title-group">
+        <h1>Weight Tracker</h1>
+        <div class="theme-picker" id="theme-picker" role="group" aria-label="Color theme">
+          <button type="button" data-palette="coral" title="Warm coral" aria-label="Warm coral theme" aria-pressed="true"></button>
+          <button type="button" data-palette="blue" title="Ocean blue" aria-label="Ocean blue theme" aria-pressed="false"></button>
+          <button type="button" data-palette="lavender" title="Soft lavender" aria-label="Soft lavender theme" aria-pressed="false"></button>
+          <button type="button" data-palette="mint" title="Fresh mint" aria-label="Fresh mint theme" aria-pressed="false"></button>
+          <button type="button" data-palette="graphite" title="Graphite (black and tinted gray)" aria-label="Graphite theme" aria-pressed="false"></button>
+        </div>
+      </div>
+      <div class="profile-controls" id="profile-controls" hidden>
+        <label class="visually-hidden" for="profile-select">Profile</label>
+        <select id="profile-select"></select>
+        <div class="unit-toggle" id="unit-toggle" role="group" aria-label="Weight unit">
+          <button type="button" data-unit="kg" aria-pressed="true">kg</button>
+          <button type="button" data-unit="lb" aria-pressed="false">lb</button>
+        </div>
+        <button type="button" class="secondary" id="new-profile-btn">New profile</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="card" id="onboarding" hidden>
+        <h2>Create your profile</h2>
+        <p class="muted">Your data stays on this computer: in the project's <code>userdata/</code> folder when you run the app with <code>npm run dev</code>, otherwise only in this browser.</p>
+        <form id="onboarding-form" class="profile-form">
+          <label>Name <input name="name" required maxlength="40" autocomplete="off" /></label>
+          <label>Unit
+            <select name="unit"><option value="kg">kg</option><option value="lb">lb</option></select>
+          </label>
+          <button type="submit">Create profile</button>
+        </form>
+      </section>
+
+      <div id="tracker" hidden>
+        <section class="card input-card">
+          <form id="entry-form" class="entry-form">
+            <label for="weight-input">Today's weight</label>
+            <div class="entry-row">
+              <input id="weight-input" type="number" inputmode="decimal" step="0.1" min="1" max="999" required />
+              <span id="unit-label" class="unit"></span>
+              <button type="submit">Log weight</button>
+            </div>
+            <p class="muted small">The date and time are recorded automatically from this device.</p>
+          </form>
+        </section>
+
+        <section class="stats">
+          <div class="card stat">
+            <span class="stat-label">10-day average</span>
+            <span class="stat-value" id="avg-value">—</span>
+            <span class="muted small" id="avg-note"></span>
+          </div>
+          <div class="card stat">
+            <span class="stat-label">Logged in last 60 days</span>
+            <span class="stat-value" id="freq-value">—</span>
+            <span class="muted small" id="freq-note"></span>
+            <div class="meter"><div class="meter-fill" id="freq-meter"></div></div>
+          </div>
+        </section>
+
+        <section class="card plot-card" id="charts-card">
+          <div class="plot-header">
+            <h2>Weight trend</h2>
+            <div class="range-row">
+              <label>From <input type="date" id="range-start" /></label>
+              <label>To <input type="date" id="range-end" /></label>
+            </div>
+          </div>
+          <div class="plot-controls">
+            <div class="button-row presets" role="group" aria-label="Quick date ranges">
+              <button type="button" class="chip" data-range-days="10">10 days</button>
+              <button type="button" class="chip" data-range-days="30">30 days</button>
+              <button type="button" class="chip" data-range-days="90">90 days</button>
+              <button type="button" class="chip" data-range-days="all">All time</button>
+            </div>
+          </div>
+          <figure class="chart" id="chart-figure">
+            <figcaption id="chart-title"></figcaption>
+            <div class="chart-legend">
+              <span><i class="chart-swatch series-weight"></i>Weight (each entry)</span>
+              <span><i class="chart-swatch series-average"></i>10-day average</span>
+            </div>
+            <div class="chart-host" id="chart-host"></div>
+            <details class="chart-data">
+              <summary id="chart-table-summary">Show data table</summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col" id="chart-table-value">Weight</th>
+                    <th scope="col" id="chart-table-average">10-day avg</th>
+                  </tr>
+                </thead>
+                <tbody id="chart-table-body"></tbody>
+              </table>
+              <div class="override-panel" id="override-card">
+                <h3>Correct a weight</h3>
+                <p class="muted small">
+                  Replace the weight for one date, e.g. to fix a typo or fill in a missed day. All entries on that date
+                  become one entry with the new weight. You'll be asked to confirm before anything is saved.
+                </p>
+                <form id="override-form" class="override-form">
+                  <label>Date <input type="date" id="override-date" required /></label>
+                  <label>New weight
+                    <span class="override-weight">
+                      <input type="number" id="override-weight" inputmode="decimal" step="0.1" min="1" max="999" required />
+                      <span class="unit" id="override-unit"></span>
+                    </span>
+                  </label>
+                  <button type="submit">Save correction…</button>
+                </form>
+                <p class="small override-current" id="override-current"></p>
+              </div>
+            </details>
+          </figure>
+        </section>
+
+
+        <section class="card input-card">
+          <h2>Food log</h2>
+          <form id="food-form" class="food-form">
+            <label class="visually-hidden" for="food-input">What did you eat?</label>
+            <input
+              id="food-input"
+              type="text"
+              maxlength="200"
+              required
+              autocomplete="off"
+              placeholder="What did you eat? e.g. oatmeal with berries"
+            />
+            <label class="visually-hidden" for="food-category">Category</label>
+            <select id="food-category" required>
+              <option value="" disabled selected>Category</option>
+              <option value="protein">Protein</option>
+              <option value="produce">Vegetables &amp; fruit</option>
+              <option value="grains">Grains &amp; starches</option>
+              <option value="dairy">Dairy</option>
+              <option value="snacks">Snacks &amp; sweets</option>
+              <option value="drinks">Drinks</option>
+            </select>
+            <button type="submit">Log food</button>
+          </form>
+          <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
+          <p class="muted small" id="food-empty">Nothing logged today yet.</p>
+          <div class="food-list" id="food-list"></div>
+        </section>
+
+        <section class="card plot-card" id="food-viz-card">
+          <div class="plot-header">
+            <h2>Food breakdown</h2>
+            <div class="range-row">
+              <label>From <input type="date" id="food-range-start" /></label>
+              <label>To <input type="date" id="food-range-end" /></label>
+            </div>
+          </div>
+          <div class="plot-controls">
+            <div class="button-row presets" role="group" aria-label="Quick date ranges for the food chart">
+              <button type="button" class="chip" data-food-range="7">7 days</button>
+              <button type="button" class="chip" data-food-range="30">30 days</button>
+              <button type="button" class="chip" data-food-range="90">90 days</button>
+              <button type="button" class="chip" data-food-range="all">All time</button>
+            </div>
+            <p class="muted small pie-detail" id="food-pie-detail" aria-live="polite"></p>
+          </div>
+          <div class="food-pie" id="food-pie"></div>
+          <details class="chart-data food-data">
+            <summary id="food-table-summary">Show data table</summary>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Food</th>
+                  <th scope="col">Category</th>
+                </tr>
+              </thead>
+              <tbody id="food-table-body"></tbody>
+            </table>
+          </details>
+        </section>
+
+        <section class="card input-card">
+          <h2>Exercise log</h2>
+          <form id="exercise-form" class="food-form exercise-form">
+            <label class="visually-hidden" for="exercise-name">What did you do?</label>
+            <input
+              id="exercise-name"
+              type="text"
+              maxlength="100"
+              required
+              autocomplete="off"
+              placeholder="What did you do? e.g. morning run"
+            />
+            <label class="visually-hidden" for="exercise-category">Category</label>
+            <select id="exercise-category" required>
+              <option value="" disabled selected>Category</option>
+              <option value="cardio">Cardio</option>
+              <option value="strength">Strength</option>
+              <option value="flexibility">Flexibility</option>
+            </select>
+            <span class="exercise-minutes">
+              <label class="visually-hidden" for="exercise-minutes">Duration in minutes</label>
+              <input id="exercise-minutes" type="number" min="1" max="1440" step="1" inputmode="numeric" required placeholder="30" />
+              <span class="unit">min</span>
+            </span>
+            <button type="submit">Log exercise</button>
+          </form>
+          <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
+          <p class="muted small" id="exercise-empty">No exercise logged today yet.</p>
+          <div class="food-list" id="exercise-list"></div>
+        </section>
+
+        <section class="card plot-card" id="exercise-card">
+          <div class="plot-header">
+            <h2>Exercise</h2>
+            <div class="range-row">
+              <label>From <input type="date" id="exercise-range-start" /></label>
+              <label>To <input type="date" id="exercise-range-end" /></label>
+            </div>
+          </div>
+          <div class="plot-controls">
+            <div class="button-row presets" role="group" aria-label="Quick date ranges for the exercise charts">
+              <button type="button" class="chip" data-exercise-range="7">7 days</button>
+              <button type="button" class="chip" data-exercise-range="30">30 days</button>
+              <button type="button" class="chip" data-exercise-range="90">90 days</button>
+              <button type="button" class="chip" data-exercise-range="all">All time</button>
+            </div>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Exercise views" id="exercise-tabs">
+            <button type="button" role="tab" id="ex-tab-summary" data-tab="summary" aria-controls="exercise-panel" aria-selected="true">Summary</button>
+            <button type="button" role="tab" id="ex-tab-cardio" data-tab="cardio" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-cardio"></i>Cardio</button>
+            <button type="button" role="tab" id="ex-tab-strength" data-tab="strength" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-strength"></i>Strength</button>
+            <button type="button" role="tab" id="ex-tab-flexibility" data-tab="flexibility" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-flexibility"></i>Flexibility</button>
+          </div>
+          <div class="tab-panel" role="tabpanel" id="exercise-panel" aria-labelledby="ex-tab-summary">
+            <p class="muted small exercise-caption" id="exercise-caption" aria-live="polite"></p>
+            <div class="exercise-summary" id="exercise-summary"></div>
+            <div class="chart-host" id="exercise-chart" hidden></div>
+          </div>
+          <details class="chart-data exercise-data">
+            <summary id="exercise-table-summary">Show data table</summary>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Activity</th>
+                  <th scope="col">Category</th>
+                  <th scope="col" class="num">Minutes</th>
+                </tr>
+              </thead>
+              <tbody id="exercise-table-body"></tbody>
+            </table>
+          </details>
+        </section>
+
+        <section class="quiet-section">
+          <h2>Data &amp; backup</h2>
+          <p id="folder-status"></p>
+          <ul class="folder-files" id="folder-files" hidden></ul>
+          <p>
+            Export CSV files now and then as a backup. Import adds weigh-ins from a weight CSV with
+            <code>timestamp,weight_kg,weight_lb</code> (or <code>timestamp,weight,unit</code>) columns to the selected profile.
+          </p>
+          <div class="button-row">
+            <button type="button" class="secondary" id="export-csv-btn">Export weight CSV</button>
+            <button type="button" class="secondary" id="export-food-csv-btn">Export food CSV</button>
+            <button type="button" class="secondary" id="export-exercise-csv-btn">Export exercise CSV</button>
+            <button type="button" class="secondary" id="import-btn">Import weight CSV</button>
+            <input type="file" id="import-file" accept="text/csv,.csv" hidden />
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <dialog id="new-profile-dialog">
+      <form method="dialog" id="new-profile-form" class="profile-form">
+        <h2>New profile</h2>
+        <label>Name <input name="name" required maxlength="40" autocomplete="off" /></label>
+        <label>Unit
+          <select name="unit"><option value="kg">kg</option><option value="lb">lb</option></select>
+        </label>
+        <div class="button-row">
+          <button type="submit" value="create">Create</button>
+          <button type="button" class="secondary" id="new-profile-cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
+      <form method="dialog">
+        <h2 id="confirm-title"></h2>
+        <div id="confirm-body"></div>
+        <div class="button-row">
+          <button type="submit" value="confirm" id="confirm-ok"></button>
+          <button type="submit" value="cancel" class="secondary" formnovalidate autofocus>Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <p class="toast" id="toast" role="status" aria-live="polite"></p>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
