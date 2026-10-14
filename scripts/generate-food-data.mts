@@ -1,9 +1,9 @@
 // Fills a profile's food log with 60 days of made-up meals, for trying the food pie chart.
-// Writes straight into userdata/<slug>-food.csv (timestamp,food,category); no JSON involved.
+// Writes straight into testdata/<slug>-food.csv (timestamp,food,category); no JSON involved.
 //
 //   node scripts/generate-food-data.mts [profile-slug]     (default: juju)
 //
-// The current file is copied to userdata/.migrated/<slug>-food.before-test-data.csv first.
+// The current file is copied to testdata/.migrated/<slug>-food.before-test-data.csv first.
 // Existing rows are kept; "beef brisket" is tagged Protein. Re-running doesn't duplicate rows.
 
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -15,7 +15,7 @@ import type { FoodEntry } from '../src/types.ts';
 
 const DAYS = 60;
 const slug = process.argv[2] ?? 'juju';
-const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'userdata');
+const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'testdata');
 const file = join(dir, `${slug}-food.csv`);
 
 // mulberry32: small seeded PRNG returning [0, 1).

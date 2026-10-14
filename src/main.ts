@@ -1,17 +1,32 @@
 import './style.css';
+import { currentSession, endSession, startSession, usernameProblem, weightMatches } from './accounts';
 import {
   createProfile,
-  listProfiles,
+  findProfileByName,
   loadUser,
   requestPersistentStorage,
   saveUser,
   loadUserFromFiles,
-  syncProfileListFromFiles,
   setSyncErrorHandler,
 } from './storage';
-import { parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
-import { onUserdataStatusChange, userdataPath, userdataStatus } from './userdata-api';
-import type { ProfileSummary, UserData, WeightUnit } from './types';
+import { mergeNew, parseExerciseCsv, parseFoodCsv, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import {
+  chooseFolder,
+  closeAccount,
+  localService,
+  onUserdataStatusChange,
+  openAccount,
+  pickAccountFolder,
+  findProfileData,
+  signOutDrive,
+  useGoogleDrive,
+  reconnectFolder,
+  userdataPath,
+  userdataStatus,
+} from './userdata-api';
+import { profileSlug } from './names';
+import { folderSupported } from './folder-store';
+import type { UserData, WeightEntry, WeightUnit } from './types';
 import { dayKey, startOfDay } from './stats';
 import { overrideDay } from './edits';
 import { initThemePicker } from './theme';
@@ -21,40 +36,28 @@ import {
   dom,
   formatEntry,
   renderChart,
+  renderAccount,
   renderFolder,
+  renderGate,
+  renderLogin,
   renderOverride,
   renderExerciseBreakdown,
   renderFoodBreakdown,
-  renderProfiles,
+  renderSignupFolder,
   renderUser,
+  showFormError,
   showToast,
+  type LoginMode,
   EXERCISE_TABS,
   type ExerciseTab,
 } from './ui';
 import { categoryFromText, categoryLabel } from './food';
 import { exerciseCategoryFromText, validMinutes } from './exercise';
 
-const LAST_PROFILE_KEY = 'lastProfileId';
-
-let profiles: ProfileSummary[] = [];
+/** The logged-in profile; null on the login page. */
 let current: UserData | null = null;
-
-function rememberProfile(userId: string | null): void {
-  try {
-    if (userId) localStorage.setItem(LAST_PROFILE_KEY, userId);
-    else localStorage.removeItem(LAST_PROFILE_KEY);
-  } catch {
-    // Storage can be unavailable (e.g. private mode); this is only a convenience.
-  }
-}
-
-function recalledProfile(): string | null {
-  try {
-    return localStorage.getItem(LAST_PROFILE_KEY);
-  } catch {
-    return null;
-  }
-}
+/** The folder picked in the Create account form, before the account exists. */
+let signupFolder: FileSystemDirectoryHandle | null = null;
 
 /** Reads a date input ("YYYY-MM-DD") as local midnight. */
 function readDateInput(input: HTMLInputElement): number | null {
@@ -101,9 +104,15 @@ function drawChart(): void {
 }
 
 function render(): void {
-  renderProfiles(profiles, current?.userId ?? null);
+  renderAccount(current?.name ?? null);
   renderUser(current, Date.now());
   renderFolder(userdataStatus(), userdataPath(), current);
+  renderSignupFolder(userdataStatus(), userdataPath(), signupFolder?.name ?? null);
+  // Saving to a folder is required: without one, show what to do instead of the app (Log out stays).
+  if (renderGate(userdataStatus(), userdataPath(), current !== null)) {
+    dom.login.hidden = true;
+    dom.tracker.hidden = true;
+  }
   if (current) renderOverride(current, readDateInput(dom.overrideDate));
   drawChart();
   drawFoodBreakdown();
@@ -112,7 +121,7 @@ function render(): void {
 
 async function selectProfile(userId: string | null): Promise<void> {
   current = userId ? ((await loadUser(userId)) ?? null) : null;
-  // When running locally, the userdata/ files hold the latest data for this name.
+  // When running locally, the testdata/ files hold the latest data for this name.
   if (current) current = await loadUserFromFiles(current);
   // The weight chart and the food pie both open on the last 30 days.
   setRange(daysAgo(29), Date.now());
@@ -120,47 +129,230 @@ async function selectProfile(userId: string | null): Promise<void> {
   // The exercise card opens on the past week.
   setExerciseRange(daysAgo(6), Date.now());
   dom.overrideDate.value = dayKey(Date.now());
-  rememberProfile(current?.userId ?? null);
   render();
 }
 
-async function refreshProfiles(selectId?: string | null): Promise<void> {
-  profiles = await listProfiles();
-  const wanted = selectId ?? current?.userId ?? recalledProfile();
-  const found = profiles.find((p) => p.userId === wanted) ?? profiles[0];
-  await selectProfile(found?.userId ?? null);
+/** Reloads the open profile from the data folder, keeping the chosen date ranges. */
+async function reloadCurrent(): Promise<void> {
+  if (current) current = await loadUserFromFiles(current);
+  render();
 }
 
-function readProfileForm(form: HTMLFormElement): { name: string; unit: WeightUnit } | null {
-  const data = new FormData(form);
-  const name = String(data.get('name') ?? '').trim();
-  const unit = data.get('unit') === 'lb' ? 'lb' : 'kg';
-  return name ? { name, unit } : null;
+// --- Login by username and a weight from the profile's logged range. Each profile remembers its own data folder.
+
+/** The username typed in Log in that has no profile yet, while "Create account" / "Find it" are offered. */
+let missingName: string | null = null;
+
+const usernameIn = (form: HTMLFormElement) => String(new FormData(form).get('username') ?? '').trim();
+
+/**
+ * The weigh-ins of the profile with this name, or null if there isn't one: from testdata/ when running
+ * locally; on a hosted site, from this browser's copy (the browser also remembers the profile's folder).
+ */
+async function knownEntries(name: string, local: boolean): Promise<WeightEntry[] | null> {
+  if (local) return (await findProfileData(name))?.entries ?? null;
+  const summary = await findProfileByName(name);
+  return summary ? ((await loadUser(summary.userId))?.entries ?? []) : null;
 }
 
-async function addProfile(form: HTMLFormElement): Promise<void> {
-  const values = readProfileForm(form);
-  if (!values) return;
-  const { user, existed } = await createProfile(values.name, values.unit);
+const LOGIN_UNIT_KEY = 'loginUnit';
+
+function recalledLoginUnit(): WeightUnit {
+  try {
+    return localStorage.getItem(LOGIN_UNIT_KEY) === 'lb' ? 'lb' : 'kg';
+  } catch {
+    return 'kg';
+  }
+}
+
+/** The unit the login weight is typed in; remembered in this browser. */
+let loginUnit: WeightUnit = recalledLoginUnit();
+
+function setLoginUnit(unit: WeightUnit): void {
+  loginUnit = unit;
+  for (const btn of dom.loginUnitButtons) btn.setAttribute('aria-pressed', String(btn.dataset.unit === unit));
+  try {
+    localStorage.setItem(LOGIN_UNIT_KEY, unit);
+  } catch {
+    // Not remembered in private windows; the toggle still works.
+  }
+}
+
+/** The login weight must be in the profile's login range (see loginRange in accounts.ts). Shows the error if not. */
+function weightAccepted(entries: WeightEntry[]): boolean {
+  const weight = dom.loginWeight.valueAsNumber;
+  if (weightMatches(entries, weight, loginUnit)) return true;
+  showFormError(
+    dom.loginForm,
+    Number.isFinite(weight)
+      ? `That weight isn't in the range you've logged. Check the unit (${loginUnit}).`
+      : "Enter a weight you've logged before",
+  );
+  dom.loginWeight.focus();
+  return false;
+}
+
+/**
+ * Opens a profile: its folder (`handle` if one was just picked, else the one remembered), then its data,
+ * loaded from that folder or created there. Returns true if the profile already had data.
+ */
+async function enter(name: string, handle: FileSystemDirectoryHandle | null, ask: boolean): Promise<boolean> {
+  await openAccount(profileSlug(name), handle, ask);
+  const { user, existed } = await createProfile(name, 'kg');
+  startSession(user.name);
+  await selectProfile(user.userId);
+  return existed;
+}
+
+function showMissing(name: string | null, local: boolean): void {
+  missingName = name;
+  dom.loginMissing.hidden = name === null;
+  if (name === null) return;
+  const findable = !local && folderSupported();
+  dom.loginMissingText.textContent = local
+    ? `There's no profile named "${name}" yet. Create an account to start one.`
+    : `This browser doesn't have a profile named "${name}". Create an account for it${findable ? ', or find it in the folder where its data is saved' : ''}.`;
+  dom.loginFindBtn.hidden = !findable;
+}
+
+async function logIn(form: HTMLFormElement): Promise<void> {
+  const name = usernameIn(form);
+  const problem = usernameProblem(name);
+  if (problem) {
+    showFormError(form, problem);
+    return;
+  }
+  const local = await localService();
+  const entries = await knownEntries(name, local);
+  if (!entries) {
+    showMissing(name, local);
+    return;
+  }
+  if (!weightAccepted(entries)) return;
   form.reset();
-  await refreshProfiles(user.userId);
-  showToast(existed ? `"${user.name}" already exists — opened it` : `Profile "${user.name}" created`);
+  await enter(name, null, true);
+  showToast(`Welcome back, ${current?.name ?? name}`);
 }
 
-dom.onboardingForm.addEventListener('submit', (event) => {
+async function signUp(form: HTMLFormElement): Promise<void> {
+  const name = usernameIn(form);
+  const problem = usernameProblem(name);
+  if (problem) {
+    showFormError(form, problem);
+    return;
+  }
+  const local = await localService();
+  if (!local && !signupFolder) {
+    showFormError(form, 'Choose a folder to save your data in');
+    dom.signupFolderBtn.focus();
+    return;
+  }
+  if ((await knownEntries(name, local)) !== null) {
+    showFormError(form, `"${name}" already exists. Log in instead.`);
+    return;
+  }
+  const handle = signupFolder;
+  signupFolder = null;
+  form.reset();
+  // A folder that already has this name's files opens them rather than starting over.
+  const existed = await enter(name, handle, true);
+  showToast(existed ? `Opened ${current?.name ?? name}'s saved data from the folder` : `Welcome, ${name}`);
+}
+
+/** Runs a login form's action with its button disabled, showing any failure under the form. */
+async function submitLogin(form: HTMLFormElement, action: (form: HTMLFormElement) => Promise<void>): Promise<void> {
+  const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  if (button.disabled) return;
+  button.disabled = true;
+  showFormError(form, null);
+  showMissing(null, false);
+  try {
+    await action(form);
+  } catch (err) {
+    console.error(err);
+    showFormError(form, err instanceof Error ? err.message : 'Something went wrong. Try again.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+dom.loginForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  void addProfile(dom.onboardingForm);
+  void submitLogin(dom.loginForm, logIn);
+});
+dom.signupForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  void submitLogin(dom.signupForm, signUp);
 });
 
-dom.newProfileBtn.addEventListener('click', () => dom.newProfileDialog.showModal());
-dom.newProfileCancel.addEventListener('click', () => dom.newProfileDialog.close());
-dom.newProfileForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  dom.newProfileDialog.close();
-  void addProfile(dom.newProfileForm);
+// "Create account" from a username that wasn't found: switch tabs with the name filled in.
+dom.loginCreateBtn.addEventListener('click', () => {
+  const name = missingName ?? '';
+  selectLoginMode('signup');
+  dom.signupForm.querySelector<HTMLInputElement>('input[name="username"]')!.value = name;
+  (dom.signupFolderBtn.hidden ? dom.signupForm.querySelector<HTMLButtonElement>('button[type="submit"]')! : dom.signupFolderBtn).focus();
 });
 
-dom.profileSelect.addEventListener('change', () => void selectProfile(dom.profileSelect.value));
+// "Find it in a folder…": a profile this browser hasn't seen, saved in a folder from another browser.
+dom.loginFindBtn.addEventListener('click', async () => {
+  const name = missingName;
+  if (!name) return;
+  try {
+    const handle = await pickAccountFolder();
+    if (!handle) return;
+    const data = await findProfileData(name, handle);
+    if (!data) {
+      showFormError(dom.loginForm, `There are no files for "${name}" in "${handle.name}".`);
+      return;
+    }
+    showMissing(null, false);
+    if (!weightAccepted(data.entries)) return;
+    dom.loginForm.reset();
+    await enter(name, handle, true);
+    showToast(`Welcome back, ${current?.name ?? name}`);
+  } catch (err) {
+    console.error(err);
+    showToast("Couldn't open that folder");
+  }
+});
+
+dom.signupFolderBtn.addEventListener('click', async () => {
+  try {
+    signupFolder = (await pickAccountFolder()) ?? signupFolder;
+    showFormError(dom.signupForm, null);
+    render();
+  } catch (err) {
+    console.error(err);
+    showToast("Couldn't open that folder");
+  }
+});
+
+function selectLoginMode(mode: LoginMode, focus = false): void {
+  renderLogin(mode, focus);
+  showFormError(dom.loginForm, null);
+  showFormError(dom.signupForm, null);
+  showMissing(null, false);
+}
+
+for (const tab of dom.loginTabs) tab.addEventListener('click', () => selectLoginMode(tab.dataset.mode as LoginMode));
+// Left/right arrows switch tabs, as in a standard tab list.
+dom.loginTabs[0].parentElement!.addEventListener('keydown', (event) => {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  selectLoginMode(dom.signupForm.hidden ? 'signup' : 'login', true);
+});
+
+dom.loginUnitButtons.forEach((btn) => btn.addEventListener('click', () => setLoginUnit(btn.dataset.unit === 'lb' ? 'lb' : 'kg')));
+setLoginUnit(loginUnit);
+
+dom.logoutBtn.addEventListener('click', () => {
+  endSession();
+  current = null;
+  closeAccount();
+  selectLoginMode('login');
+  render();
+  dom.loginForm.querySelector('input')?.focus();
+});
 
 dom.entryForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -348,7 +540,7 @@ document.getElementById('exercise-tabs')!.addEventListener('keydown', (event) =>
 const longDay = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
 // Category dropdowns in the food data table. Adding a category to an uncategorized entry saves right
-// away; changing an existing category asks first. Either way the save rewrites userdata/<name>-food.csv.
+// away; changing an existing category asks first. Either way the save rewrites testdata/<name>-food.csv.
 dom.foodTableBody.addEventListener('change', async (event) => {
   const select = (event.target as HTMLElement).closest<HTMLSelectElement>('select.food-category-select');
   const food = current?.foods?.find((f) => f.id === select?.dataset.foodId);
@@ -442,32 +634,73 @@ dom.exportCsvBtn.addEventListener('click', () => current && downloadCsv(toWeight
 dom.exportFoodCsvBtn.addEventListener('click', () => current && downloadCsv(toFoodCsv(current), 'food'));
 dom.exportExerciseCsvBtn.addEventListener('click', () => current && downloadCsv(toExerciseCsv(current), 'exercise'));
 
-/** Entries from a CSV, added to the selected profile. Rows already logged at the same time are skipped. */
-async function importCsv(text: string, fileName: string): Promise<void> {
+type ImportKind = 'weight' | 'food' | 'exercise';
+const IMPORT_NOUN: Record<ImportKind, [string, string]> = {
+  weight: ['weigh-in', 'weigh-ins'],
+  food: ['food entry', 'food entries'],
+  exercise: ['exercise session', 'exercise sessions'],
+};
+
+/**
+ * Rows from an exported CSV, added to the selected profile after a confirmation. Rows already logged
+ * (same time; for food and exercise also the same text) are skipped, so importing twice adds nothing.
+ */
+async function importCsv(kind: ImportKind, text: string, fileName: string): Promise<void> {
   if (!current) {
     showToast('Create or select a profile first, then import the CSV');
     return;
   }
-  const { entries, skipped } = parseWeightCsv(text, current.unit);
-  const seen = new Set(current.entries.map((e) => e.timestamp));
-  const fresh = entries.filter((e) => !seen.has(e.timestamp) && seen.add(e.timestamp));
+  const user = current;
+  let total: number;
+  let skipped: number[] = [];
+  let add: () => void;
+  let count: number;
+  if (kind === 'weight') {
+    const parsed = parseWeightCsv(text, user.unit);
+    skipped = parsed.skipped;
+    total = parsed.entries.length;
+    const fresh = mergeNew(user.entries, parsed.entries, (e) => String(e.timestamp));
+    count = fresh.length;
+    add = () => user.entries.push(...fresh.map((e) => ({ id: crypto.randomUUID(), ...e })));
+  } else if (kind === 'food') {
+    const rows = parseFoodCsv(text);
+    total = rows.length;
+    const fresh = mergeNew(user.foods ?? [], rows, (f) => `${f.timestamp}|${f.text}`);
+    count = fresh.length;
+    add = () => (user.foods = [...(user.foods ?? []), ...fresh.map((f) => ({ id: crypto.randomUUID(), ...f }))]);
+  } else {
+    const rows = parseExerciseCsv(text);
+    total = rows.length;
+    const fresh = mergeNew(user.exercises ?? [], rows, (x) => `${x.timestamp}|${x.name}`);
+    count = fresh.length;
+    add = () => (user.exercises = [...(user.exercises ?? []), ...fresh.map((x) => ({ id: crypto.randomUUID(), ...x }))]);
+  }
+
+  const [one, many] = IMPORT_NOUN[kind];
+  const noun = (n: number) => `${n} ${n === 1 ? one : many}`;
   const notes = [
-    entries.length > fresh.length ? `${entries.length - fresh.length} already logged` : '',
+    total > count ? `${total - count} already logged` : '',
     skipped.length ? `${skipped.length} unreadable (line ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? ', …' : ''})` : '',
   ].filter(Boolean);
-  if (fresh.length === 0) {
+  if (count === 0) {
     showToast(`Nothing new to add from ${fileName}${notes.length ? ` (${notes.join('; ')})` : ''}`);
     return;
   }
-  const question = `Add ${fresh.length} entries from ${fileName} to "${current.name}"?`;
+  const question = `Add ${noun(count)} from ${fileName} to "${user.name}"?`;
   if (!confirm(notes.length ? `${question}\n\nSkipping: ${notes.join('; ')}.` : question)) return;
-  current.entries.push(...fresh.map((e) => ({ id: crypto.randomUUID(), ...e })));
-  await saveUser(current);
+  add();
+  await saveUser(user);
   render();
-  showToast(`Added ${fresh.length} entries to "${current.name}"`);
+  showToast(`Added ${noun(count)} to "${user.name}"`);
 }
 
-dom.importBtn.addEventListener('click', () => dom.importFile.click());
+let importKind: ImportKind = 'weight';
+for (const button of [dom.importBtn, dom.importFoodBtn, dom.importExerciseBtn]) {
+  button.addEventListener('click', () => {
+    importKind = button.dataset.import as ImportKind;
+    dom.importFile.click();
+  });
+}
 dom.importFile.addEventListener('change', async () => {
   const file = dom.importFile.files?.[0];
   dom.importFile.value = '';
@@ -477,18 +710,107 @@ dom.importFile.addEventListener('change', async () => {
       showToast('Choose a .csv file');
       return;
     }
-    await importCsv(await file.text(), file.name);
+    await importCsv(importKind, await file.text(), file.name);
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Import failed');
   }
 });
 
-setSyncErrorHandler((err) => {
-  console.error(err);
-  showToast("Saved here, but couldn't write the userdata/ CSV files");
+// --- Data folder: on a hosted site, Chrome/Edge can save the CSV files to a folder the user picks.
+
+async function useFolder(name: string | null): Promise<void> {
+  if (!name) return;
+  if (userdataStatus() !== 'folder') {
+    showToast(`The browser didn't allow access to "${name}"`);
+    return;
+  }
+  await loadFromStore(`Saving to folder "${name}"`);
+}
+
+/** After choosing or reconnecting the folder: its files for this profile load (they win over this browser's copy), or the profile is written to it. */
+async function loadFromStore(message: string): Promise<void> {
+  await reloadCurrent();
+  showToast(message);
+}
+
+/** Signs in to Google (from a click) and saves to the "Weight Tracker" folder in that Drive. */
+async function useDrive(): Promise<void> {
+  try {
+    const email = await useGoogleDrive();
+    await loadFromStore(`Saving to Google Drive${email ? ` (${email})` : ''}`);
+  } catch (err) {
+    console.error(err);
+    showToast(err instanceof Error ? err.message : "Couldn't connect to Google Drive");
+  }
+}
+
+/** Switches to Google Drive; with profiles already here, first explains what happens to them. */
+async function pickDrive(): Promise<void> {
+  if (userdataStatus() === 'drive-signin' || !current) return useDrive();
+  const ok = await confirmChange({
+    title: 'Save to Google Drive?',
+    message: 'Sign in with Google. Your profiles will be saved as CSV files in a "Weight Tracker" folder in your Drive after every change.',
+    lines: [
+      'If that folder already has files for a profile with the same name, those files are loaded and replace this browser\'s copy.',
+      'Profiles that are only in this browser are written to Drive.',
+      'The app can only see files it created, not the rest of your Drive.',
+    ],
+    confirmLabel: 'Continue to Google…',
+  });
+  if (ok) await useDrive();
+}
+
+/** Picks a new data folder for the logged-in account, after explaining what happens to the data. */
+async function pickDataFolder(): Promise<void> {
+  if (!current) return;
+  const ok = await confirmChange({
+    title: 'Save to a different folder?',
+    message: `Pick a folder on this computer. ${current.name}'s data will be saved there as CSV files after every change.`,
+    lines: [
+      `If the folder already has files for ${current.name}, those files are loaded and replace this browser's copy.`,
+      'Otherwise your data is written to it.',
+    ],
+    confirmLabel: 'Choose folder…',
+  });
+  if (ok) await useChosenFolder();
+}
+
+async function useChosenFolder(): Promise<void> {
+  try {
+    await useFolder(await chooseFolder());
+  } catch (err) {
+    console.error(err);
+    showToast("Couldn't open that folder");
+  }
+}
+
+async function reconnect(): Promise<void> {
+  if (await reconnectFolder()) await useFolder(userdataPath());
+  else showToast("The browser didn't allow access to the folder");
+}
+
+/** The folder button in the create-profile forms and on the gate: choose, change or reconnect, by status. */
+function folderAction(): void {
+  void (userdataStatus() === 'folder-permission' ? reconnect() : pickDataFolder());
+}
+
+dom.chooseFolderBtn.addEventListener('click', () => void pickDataFolder());
+dom.changeFolderBtn.addEventListener('click', () => void pickDataFolder());
+dom.reconnectFolderBtn.addEventListener('click', () => void reconnect());
+dom.folderGateBtn.addEventListener('click', folderAction);
+dom.driveGateBtn.addEventListener('click', () => void pickDrive());
+dom.useDriveBtn.addEventListener('click', () => void pickDrive());
+dom.signOutDriveBtn.addEventListener('click', async () => {
+  await signOutDrive();
+  showToast('Signed out of Google Drive. Your files are still in Drive.');
 });
 
-onUserdataStatusChange(() => renderFolder(userdataStatus(), userdataPath(), current));
+setSyncErrorHandler((err) => {
+  console.error(err);
+  showToast("Saved here, but couldn't write the CSV files in the data folder");
+});
+
+onUserdataStatusChange(render);
 
 dom.rangeStart.addEventListener('change', drawChart);
 dom.rangeEnd.addEventListener('change', drawChart);
@@ -516,11 +838,21 @@ new ResizeObserver(([entry]) => {
 }).observe(dom.exerciseCard);
 
 // Recompute stats when the app comes back into view, since the windows depend on today's date.
+// With Google Drive, also reload the profile: it may have been changed from another device.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') render();
+  if (document.visibilityState !== 'visible') return;
+  if (userdataStatus() === 'drive' && current) void reloadCurrent();
+  else render();
 });
 
 initThemePicker(document.getElementById('theme-picker')!);
 void requestPersistentStorage();
-// Pick up profiles that exist in userdata/ (e.g. created in another browser) before showing the list.
-void syncProfileListFromFiles().then(() => refreshProfiles());
+/** Reopens the profile logged in on this tab (e.g. after a reload); otherwise shows the login page. */
+async function start(): Promise<void> {
+  const local = await localService();
+  const name = currentSession();
+  if (name && (await knownEntries(name, local)) !== null) await enter(name, null, false);
+  else render();
+}
+
+void start();

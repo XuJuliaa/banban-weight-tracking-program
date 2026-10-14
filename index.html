@@ -28,27 +28,66 @@
         </div>
       </div>
       <div class="profile-controls" id="profile-controls" hidden>
-        <label class="visually-hidden" for="profile-select">Profile</label>
-        <select id="profile-select"></select>
+        <span class="account-name">Signed in as <strong id="account-name"></strong></span>
         <div class="unit-toggle" id="unit-toggle" role="group" aria-label="Weight unit">
           <button type="button" data-unit="kg" aria-pressed="true">kg</button>
           <button type="button" data-unit="lb" aria-pressed="false">lb</button>
         </div>
-        <button type="button" class="secondary" id="new-profile-btn">New profile</button>
+        <button type="button" class="secondary" id="logout-btn">Log out</button>
       </div>
     </header>
 
     <main>
-      <section class="card" id="onboarding" hidden>
-        <h2>Create your profile</h2>
-        <p class="muted">Your data stays on this computer: in the project's <code>userdata/</code> folder when you run the app with <code>npm run dev</code>, otherwise only in this browser.</p>
-        <form id="onboarding-form" class="profile-form">
-          <label>Name <input name="name" required maxlength="40" autocomplete="off" /></label>
-          <label>Unit
-            <select name="unit"><option value="kg">kg</option><option value="lb">lb</option></select>
-          </label>
-          <button type="submit">Create profile</button>
+      <section class="card folder-gate" id="folder-gate" hidden>
+        <h2 id="folder-gate-title"></h2>
+        <p id="folder-gate-text"></p>
+        <div class="button-row">
+          <button type="button" id="folder-gate-btn"></button>
+          <button type="button" class="drive-button" id="drive-gate-btn" hidden></button>
+        </div>
+      </section>
+
+      <section class="card login-card" id="login" hidden>
+        <h2>Welcome</h2>
+        <div class="tabs login-tabs" role="tablist" aria-label="Log in or create an account">
+          <button type="button" role="tab" id="login-tab" data-mode="login" aria-controls="login-form" aria-selected="true">Log in</button>
+          <button type="button" role="tab" id="signup-tab" data-mode="signup" aria-controls="signup-form" aria-selected="false" tabindex="-1">Create account</button>
+        </div>
+        <form id="login-form" class="profile-form login-form" role="tabpanel" aria-labelledby="login-tab">
+          <label>Username <input name="username" required maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
+          <div class="login-weight">
+            <label for="login-weight">The weight of being me is…</label>
+            <div class="login-weight-row">
+              <input id="login-weight" name="weight" type="number" inputmode="decimal" step="0.1" min="1" max="999" />
+              <div class="unit-toggle" id="login-unit" role="group" aria-label="Unit of this weight">
+                <button type="button" data-unit="kg" aria-pressed="true">kg</button>
+                <button type="button" data-unit="lb" aria-pressed="false">lb</button>
+              </div>
+            </div>
+          </div>
+          <p class="form-error small" data-form-error role="alert" hidden></p>
+          <div class="login-missing" id="login-missing" role="status" hidden>
+            <p id="login-missing-text"></p>
+            <div class="button-row">
+              <button type="button" id="login-create-btn">Create account</button>
+              <button type="button" class="secondary" id="login-find-btn">Find it in a folder…</button>
+            </div>
+          </div>
+          <button type="submit">Log in</button>
         </form>
+        <form id="signup-form" class="profile-form login-form" role="tabpanel" aria-labelledby="signup-tab" hidden>
+          <label>Username <input name="username" required maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
+          <div class="folder-field" id="signup-folder">
+            <span class="folder-field-label">Where to save your data <span class="required">(required)</span></span>
+            <p class="folder-field-status small" id="signup-folder-status"></p>
+            <button type="button" class="secondary" id="signup-folder-btn">Choose folder…</button>
+          </div>
+          <p class="form-error small" data-form-error role="alert" hidden></p>
+          <button type="submit">Create account</button>
+        </form>
+        <p class="muted small login-note">
+          Your username is your profile's name, and a weight you've logged stands in for a password. There's no server: your data is saved as CSV files in your folder.
+        </p>
       </section>
 
       <div id="tracker" hidden>
@@ -71,7 +110,7 @@
             <span class="muted small" id="avg-note"></span>
           </div>
           <div class="card stat">
-            <span class="stat-label">Logged in last 60 days</span>
+            <span class="stat-label">Logged in past 30 days</span>
             <span class="stat-value" id="freq-value">—</span>
             <span class="muted small" id="freq-note"></span>
             <div class="meter"><div class="meter-fill" id="freq-meter"></div></div>
@@ -276,34 +315,29 @@
           <h2>Data &amp; backup</h2>
           <p id="folder-status"></p>
           <ul class="folder-files" id="folder-files" hidden></ul>
+          <div class="button-row folder-actions" id="folder-actions" hidden>
+            <button type="button" class="secondary" id="choose-folder-btn">Choose data folder…</button>
+            <button type="button" class="secondary" id="reconnect-folder-btn">Reconnect folder</button>
+            <button type="button" class="secondary" id="change-folder-btn">Change folder…</button>
+            <button type="button" class="secondary" id="use-drive-btn">Use Google Drive</button>
+            <button type="button" class="secondary" id="sign-out-drive-btn">Sign out of Google Drive</button>
+          </div>
           <p>
-            Export CSV files now and then as a backup. Import adds weigh-ins from a weight CSV with
-            <code>timestamp,weight_kg,weight_lb</code> (or <code>timestamp,weight,unit</code>) columns to the selected profile.
+            Export CSV files now and then as a backup. Import adds the rows of an exported weight, food or exercise CSV to your
+            profile; rows already logged are skipped.
           </p>
           <div class="button-row">
             <button type="button" class="secondary" id="export-csv-btn">Export weight CSV</button>
             <button type="button" class="secondary" id="export-food-csv-btn">Export food CSV</button>
             <button type="button" class="secondary" id="export-exercise-csv-btn">Export exercise CSV</button>
-            <button type="button" class="secondary" id="import-btn">Import weight CSV</button>
+            <button type="button" class="secondary" id="import-btn" data-import="weight">Import weight CSV</button>
+            <button type="button" class="secondary" id="import-food-btn" data-import="food">Import food CSV</button>
+            <button type="button" class="secondary" id="import-exercise-btn" data-import="exercise">Import exercise CSV</button>
             <input type="file" id="import-file" accept="text/csv,.csv" hidden />
           </div>
         </section>
       </div>
     </main>
-
-    <dialog id="new-profile-dialog">
-      <form method="dialog" id="new-profile-form" class="profile-form">
-        <h2>New profile</h2>
-        <label>Name <input name="name" required maxlength="40" autocomplete="off" /></label>
-        <label>Unit
-          <select name="unit"><option value="kg">kg</option><option value="lb">lb</option></select>
-        </label>
-        <div class="button-row">
-          <button type="submit" value="create">Create</button>
-          <button type="button" class="secondary" id="new-profile-cancel">Cancel</button>
-        </div>
-      </form>
-    </dialog>
 
     <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
       <form method="dialog">
