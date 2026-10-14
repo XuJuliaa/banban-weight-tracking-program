@@ -11,7 +11,20 @@ import {
 } from './exercise';
 import { categoryCounts, categoryLabel, FOOD_CATEGORIES, UNCATEGORIZED } from './food';
 import { renderFoodPie } from './pie';
-import { dayKey, loggingFrequency30d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
+import {
+  dayKey,
+  daysInRange,
+  daysToUnlock,
+  linearTrend,
+  type LoggingFrequency,
+  loggingFrequency30d,
+  movingAverage10d,
+  movingAverageSeries,
+  trendChange,
+  trendSentence,
+  UNLOCK_PCT,
+  weightSeries,
+} from './stats';
 import { profileSlug } from './names';
 import { profileFiles } from './profile-files';
 import type { UserData } from './types';
@@ -53,6 +66,8 @@ export const dom = {
   freqValue: el<HTMLSpanElement>('freq-value'),
   freqNote: el<HTMLSpanElement>('freq-note'),
   freqMeter: el<HTMLDivElement>('freq-meter'),
+  lockNote: el<HTMLParagraphElement>('lock-note'),
+  foodExerciseCards: el<HTMLDivElement>('food-exercise-cards'),
   foodForm: el<HTMLFormElement>('food-form'),
   foodInput: el<HTMLInputElement>('food-input'),
   foodCategory: el<HTMLSelectElement>('food-category'),
@@ -116,6 +131,7 @@ export const dom = {
   chartsCard: el<HTMLElement>('charts-card'),
   chartFigure: el<HTMLElement>('chart-figure'),
   chartTitle: el<HTMLElement>('chart-title'),
+  trendSummary: el<HTMLParagraphElement>('trend-summary'),
   chartHost: el<HTMLDivElement>('chart-host'),
   chartTableValue: el<HTMLTableCellElement>('chart-table-value'),
   chartTableAverage: el<HTMLTableCellElement>('chart-table-average'),
@@ -179,9 +195,35 @@ export function renderUser(user: UserData | null, now: number): void {
   dom.freqNote.textContent = `${freq.daysLogged} of the last ${freq.totalDays} days had an entry`;
   dom.freqMeter.style.width = `${freq.pct}%`;
   dom.freqMeter.parentElement?.setAttribute('aria-label', `${Math.round(freq.pct)}% of days logged`);
+  renderLock(freq);
 
   renderFoods(user, now);
   renderExercises(user, now);
+}
+
+/**
+ * Food and exercise stay greyed out and unusable (inert) until UNLOCK_PCT of the last 30 days have a
+ * weigh-in; the note above them says how far along the user is.
+ */
+function renderLock(freq: LoggingFrequency): void {
+  const missing = daysToUnlock(freq);
+  const locked = missing > 0;
+  dom.foodExerciseCards.inert = locked;
+  dom.foodExerciseCards.classList.toggle('is-locked', locked);
+  dom.lockNote.hidden = !locked;
+  if (!locked) return;
+  const bold = (text: string) => {
+    const strong = document.createElement('strong');
+    strong.textContent = text;
+    return strong;
+  };
+  dom.lockNote.replaceChildren(
+    `🔒 Food and exercise unlock when you've logged your weight on ${UNLOCK_PCT}% of the last ${freq.totalDays} days. You're at `,
+    bold(`${Math.round(freq.pct)}%`),
+    ` (${freq.daysLogged} of ${freq.totalDays} days). Log your weight on `,
+    bold(String(missing)),
+    ` more ${missing === 1 ? 'day' : 'days'} to unlock.`,
+  );
 }
 
 /** Most rows the weight and food data tables show; older entries are reached by narrowing the date range. */
@@ -237,8 +279,9 @@ const shortDayFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day:
 const middayOf = (timestamp: number) => new Date(timestamp).setHours(12, 0, 0, 0);
 
 /**
- * Draws weight entries and the 10-day average on one chart for local days `startDay`..`endDay`,
- * and fills the data table (one row per entry, newest first, with that day's average).
+ * Draws weight entries, the 10-day average and a straight trend line (least squares through the range's
+ * entries) on one chart for local days `startDay`..`endDay`, says above it how much the trend lost or
+ * gained, and fills the data table (one row per entry, newest first, with that day's average).
  */
 export function renderChart(user: UserData, startDay: number, endDay: number): void {
   const points = pointsIn(user.entries, user.unit);
@@ -256,10 +299,30 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
   dom.chartFigure.hidden = false;
   dom.chartTitle.textContent = `Weight (${user.unit}), ${shortDayFormat.format(from)} – ${shortDayFormat.format(to)}`;
 
+  // The trend line is drawn through the same times as the entries, so hovering an entry shows its trend value.
+  const logged = weights.filter((p): p is { x: number; y: number; id?: string } => p.y !== null);
+  const trend = linearTrend(logged);
+  const change = trendChange(trend, logged);
+  // The numbers (amount and days) are shown in bold.
+  dom.trendSummary.replaceChildren(
+    ...trendSentence(change, daysInRange(from, to), user.unit, dayKey(to) === dayKey(now))
+      .split(/(\d+)/)
+      .map((part, i) => {
+        if (i % 2 === 0) return part;
+        const strong = document.createElement('strong');
+        strong.textContent = part;
+        return strong;
+      }),
+  );
+
   const series: ChartSeries[] = [
     { label: 'Weight', points: weights, className: 'series-weight', dots: true, smooth: false },
     { label: '10-day avg', points: averages, className: 'series-average', dots: false, smooth: true },
   ];
+  if (trend) {
+    const points = logged.map((p) => ({ x: p.x, y: trend.at(p.x) }));
+    series.push({ label: 'Trend', points, className: 'series-trend', dots: false, smooth: false });
+  }
   renderLineChart(dom.chartHost, series, from, to, {
     unit: user.unit,
     formatX: (x, s) => (s.dots ? dateFormat.format(x) : dayFormat.format(x)),
@@ -267,7 +330,7 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
 
   dom.chartTableValue.textContent = `Weight (${user.unit})`;
   dom.chartTableAverage.textContent = `10-day avg (${user.unit})`;
-  const allRows = weights.filter((p): p is { x: number; y: number; id?: string } => p.y !== null).reverse();
+  const allRows = [...logged].reverse();
   const rows = allRows.slice(0, TABLE_ROW_LIMIT);
   dom.chartTableSummary.textContent = tableSummary(rows.length, allRows.length);
   dom.chartTableBody.replaceChildren(

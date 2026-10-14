@@ -48,9 +48,13 @@ npm run dev        # serves http://localhost:5173
 - **Log a weight.** Type the number and press Enter. The timestamp comes from the device.
 - **10-day average.** The average over the last 10 calendar days, today included. Several weigh-ins on one day are averaged first, so each day counts once.
 - **30-day logging frequency.** The share of the past 30 calendar days with at least one weigh-in, e.g. "70%" (21 of 30 days).
-- **Weight trend chart.** One chart with two lines:
+- **Food and exercise unlock at 80%.** The food and exercise sections stay greyed out until at least 80% of the past 30 days (24 days) have a weigh-in, with a note saying how many more days are needed.
+- **Weight trend chart.** One chart with three lines:
   - every weigh-in, as dots joined by a thin line
-  - the 10-day average, as a smooth black line drawn on top
+  - the 10-day average, as a smooth black line
+  - a red dotted **trend line**: the straight line that best fits the range's weigh-ins (least-squares linear regression)
+
+  In the chart's top right corner, a sentence sums up the trend in whole numbers (shown in bold), in the unit chosen with the **kg | lb** switch: "You have lost **3** pounds over the past **30** days. Congrats!", or "You have gained … Work harder!!" when the line goes up ("held your weight steady" when it rounds to 0). The amount is how far the trend line falls or rises between the first and last weigh-in in the range, so it's never stretched past your data; the days are the length of the chosen range. A range ending before today reads "over these 30 days". With fewer than two weigh-ins in the range there's no trend.
 
   It opens on the **last 30 days**. Change the From/To dates, or use the **10 / 30 / 90 days / All time** chips. Hover the chart for exact values.
 - **Show data table.** Under the chart, it lists the entries in the range, newest first, up to 100 rows, with that day's average.
@@ -58,7 +62,7 @@ npm run dev        # serves http://localhost:5173
   - A confirmation pop-up shows exactly what will be overwritten.
   - Everything logged that day is then replaced by one entry.
   - Nothing can be deleted from the page.
-- **kg | lb switch** next to the profile picker.
+- **kg | lb switch** in the header.
   - Every weigh-in is stored in both units, so switching only changes which column is shown: stats, chart, table and corrections all follow.
   - Nothing is converted or rewritten.
   - The choice is remembered per profile.
