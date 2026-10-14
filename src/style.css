@@ -744,6 +744,12 @@ code { font-size: 0.85em; }
 .login-form > button[type='submit'] { justify-self: start; }
 .form-error { margin: 0; color: var(--danger); font-weight: 600; }
 .login-note { margin: 16px 0 0; }
+.login-weight { display: grid; gap: 4px; }
+.login-weight p { margin: 0; }
+.login-weight-row { display: flex; gap: 8px; align-items: center; }
+.login-weight-row input { flex: 1; min-width: 0; }
+.login-missing { padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); }
+.login-missing p { margin: 0 0 10px; }
 .account-name { color: var(--muted); font-size: 0.95rem; }
 .account-name strong { color: var(--text); }
 

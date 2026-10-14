@@ -35,7 +35,7 @@ async function upsertProfile(summary: ProfileSummary): Promise<void> {
 }
 
 /** The browser's profile with this name (same rule as file names: case and punctuation don't matter). */
-async function findProfileByName(name: string): Promise<ProfileSummary | undefined> {
+export async function findProfileByName(name: string): Promise<ProfileSummary | undefined> {
   const slug = profileSlug(name);
   return (await listProfiles()).find((p) => profileSlug(p.name) === slug);
 }

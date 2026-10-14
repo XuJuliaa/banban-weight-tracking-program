@@ -55,16 +55,28 @@
         </div>
         <form id="login-form" class="profile-form login-form" role="tabpanel" aria-labelledby="login-tab">
           <label>Username <input name="username" required maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
-          <label>Password <input name="password" type="password" required autocomplete="current-password" /></label>
+          <div class="login-weight">
+            <label for="login-weight">The weight of being me is…</label>
+            <div class="login-weight-row">
+              <input id="login-weight" name="weight" type="number" inputmode="decimal" step="0.1" min="1" max="999" />
+              <div class="unit-toggle" id="login-unit" role="group" aria-label="Unit of this weight">
+                <button type="button" data-unit="kg" aria-pressed="true">kg</button>
+                <button type="button" data-unit="lb" aria-pressed="false">lb</button>
+              </div>
+            </div>
+          </div>
           <p class="form-error small" data-form-error role="alert" hidden></p>
+          <div class="login-missing" id="login-missing" role="status" hidden>
+            <p id="login-missing-text"></p>
+            <div class="button-row">
+              <button type="button" id="login-create-btn">Create account</button>
+              <button type="button" class="secondary" id="login-find-btn">Find it in a folder…</button>
+            </div>
+          </div>
           <button type="submit">Log in</button>
         </form>
         <form id="signup-form" class="profile-form login-form" role="tabpanel" aria-labelledby="signup-tab" hidden>
           <label>Username <input name="username" required maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
-          <label>Password <span class="muted small">(at least 8 characters)</span>
-            <input name="password" type="password" required minlength="8" autocomplete="new-password" />
-          </label>
-          <label>Confirm password <input name="confirm" type="password" required minlength="8" autocomplete="new-password" /></label>
           <div class="folder-field" id="signup-folder">
             <span class="folder-field-label">Where to save your data <span class="required">(required)</span></span>
             <p class="folder-field-status small" id="signup-folder-status"></p>
@@ -74,8 +86,7 @@
           <button type="submit">Create account</button>
         </form>
         <p class="muted small login-note">
-          There's no server: your password is checked on this device, and your data is saved as CSV files in your folder.
-          The password keeps other people using this computer out of your profile, but the files themselves aren't encrypted.
+          Your username is your profile's name, and a weight you've logged stands in for a password. There's no server: your data is saved as CSV files in your folder.
         </p>
       </section>
 

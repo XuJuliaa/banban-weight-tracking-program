@@ -266,23 +266,13 @@ export async function localService(): Promise<boolean> {
 export const pickAccountFolder = pickFolder;
 
 /**
- * The text of <slug>-account.csv: from the local service, else from `handle` (a folder picked at login),
- * else from the open account's folder. Null when it doesn't exist or there's nowhere to look.
+ * A profile's data from its files before logging in: from userdata/ when running locally, else from `handle`
+ * (a folder picked at login). Null when it has no files or there's nowhere to look.
  */
-export async function readAccountText(slug: string, handle?: FileSystemDirectoryHandle | null): Promise<string | null> {
-  const res = await call(slug, undefined, '/account');
-  if (res) return ((await res.json()) as { text: string | null }).text;
-  const store = handle ? folderTextStore(handle) : await activeStore();
-  return store ? store.read(files.accountFile(slug)) : null;
-}
-
-/** Writes <slug>-account.csv to the same place readAccountText reads it from. */
-export async function writeAccountText(slug: string, text: string, handle?: FileSystemDirectoryHandle | null): Promise<void> {
-  const res = await call(slug, { method: 'PUT', headers: { 'Content-Type': 'text/csv' }, body: text }, '/account');
-  if (res) return;
-  const store = handle ? folderTextStore(handle) : await activeStore();
-  if (!store) throw new Error('No data folder to save the account in');
-  await guarded(() => store.write(files.accountFile(slug), text));
+export async function findProfileData(name: string, handle?: FileSystemDirectoryHandle | null): Promise<FileProfileData | null> {
+  const res = await call(profileSlug(name));
+  if (res) return (await res.json()) as FileProfileData | null;
+  return handle ? files.readProfile(folderTextStore(handle), profileSlug(name)) : null;
 }
 
 /**

@@ -1,40 +1,37 @@
-// Username + password logins, with no server: the password is checked on this device against a salted
-// PBKDF2-SHA256 hash. The hash is kept in this browser and as <slug>-account.csv in the account's data
-// folder, so the same login works from another browser that opens that folder. This keeps other people
-// on the same computer out of a profile; it doesn't encrypt the CSV files.
+// Logging in by username: a username is a profile name, so logging in opens that profile from its data folder.
+// Instead of a password, the user types a weight close to what they've logged (see loginRange).
+// The session only remembers who is logged in on this tab.
 
-import { get, set } from 'idb-keyval';
-import { profileSlug } from './names';
-import type { AccountRecord } from './profile-files';
+import { dayKey } from './stats';
+import type { WeightEntry, WeightUnit } from './types';
 
-export const PASSWORD_MIN = 8;
-const ITERATIONS = 210_000;
 const SESSION_KEY = 'session';
-const accountKey = (slug: string) => `account:${slug}`;
 
-const toBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
-const fromBase64 = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
-
-async function derive(password: string, salt: Uint8Array<ArrayBuffer>, iterations: number): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
-  return new Uint8Array(bits);
+/**
+ * The weights (in `unit`, both ends included) that unlock a profile, or null when nothing is logged yet.
+ * Whole numbers only: from the lowest weigh-in rounded down to the highest rounded up, so 130 and 130.8
+ * give 130–131. With weigh-ins on just one day, it's also at least the nearest whole number ± 1, so a
+ * single 128.6 gives 128–130.
+ */
+export function loginRange(entries: WeightEntry[], unit: WeightUnit): { min: number; max: number } | null {
+  if (!entries.length) return null;
+  const weights = entries.map((e) => e[unit]);
+  const low = Math.min(...weights);
+  const high = Math.max(...weights);
+  let min = Math.floor(low);
+  let max = Math.ceil(high);
+  if (new Set(entries.map((e) => dayKey(e.timestamp))).size < 2) {
+    min = Math.min(min, Math.round(low) - 1);
+    max = Math.max(max, Math.round(high) + 1);
+  }
+  return { min, max };
 }
 
-/** A new account record for `name` with a fresh random salt. */
-export async function createAccount(name: string, password: string, iterations = ITERATIONS): Promise<AccountRecord> {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await derive(password, salt, iterations);
-  return { name: name.trim(), slug: profileSlug(name), salt: toBase64(salt), hash: toBase64(hash), iterations };
-}
-
-export async function verifyPassword(account: AccountRecord, password: string): Promise<boolean> {
-  const actual = await derive(password, fromBase64(account.salt), account.iterations);
-  const expected = fromBase64(account.hash);
-  // Compare every byte, so the time taken doesn't depend on where they differ.
-  let diff = actual.length ^ expected.length;
-  for (let i = 0; i < actual.length; i++) diff |= actual[i] ^ (expected[i] ?? 0);
-  return diff === 0;
+/** True when `weight` (in `unit`) is in the login range; also true when nothing is logged yet, as there's nothing to check. */
+export function weightMatches(entries: WeightEntry[], weight: number, unit: WeightUnit): boolean {
+  const range = loginRange(entries, unit);
+  if (!range) return true;
+  return Number.isFinite(weight) && weight >= range.min && weight <= range.max;
 }
 
 /** Why a username can't be used, or null if it's fine. */
@@ -44,17 +41,7 @@ export function usernameProblem(name: string): string | null {
   return null;
 }
 
-export async function findAccount(slug: string): Promise<AccountRecord | undefined> {
-  try {
-    return await get<AccountRecord>(accountKey(slug));
-  } catch {
-    return undefined;
-  }
-}
-
-export const saveAccount = (account: AccountRecord) => set(accountKey(account.slug), account);
-
-/** The logged-in account's slug for this tab: survives a reload, ends when the tab or browser closes. */
+/** The username logged in on this tab: survives a reload, ends when the tab or browser closes. */
 export function currentSession(): string | null {
   try {
     return sessionStorage.getItem(SESSION_KEY);
@@ -63,9 +50,9 @@ export function currentSession(): string | null {
   }
 }
 
-export function startSession(slug: string): void {
+export function startSession(name: string): void {
   try {
-    sessionStorage.setItem(SESSION_KEY, slug);
+    sessionStorage.setItem(SESSION_KEY, name);
   } catch {
     // Private mode can block storage; the login still works until the page is reloaded.
   }
