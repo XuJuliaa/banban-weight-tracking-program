@@ -134,10 +134,14 @@
             </div>
           </div>
           <figure class="chart" id="chart-figure">
-            <figcaption id="chart-title"></figcaption>
+            <div class="chart-head">
+              <figcaption id="chart-title"></figcaption>
+              <p class="trend-summary" id="trend-summary" aria-live="polite"></p>
+            </div>
             <div class="chart-legend">
               <span><i class="chart-swatch series-weight"></i>Weight (each entry)</span>
               <span><i class="chart-swatch series-average"></i>10-day average</span>
+              <span><i class="chart-swatch series-trend"></i>Trend</span>
             </div>
             <div class="chart-host" id="chart-host"></div>
             <details class="chart-data">

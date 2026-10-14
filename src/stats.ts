@@ -111,3 +111,66 @@ export function movingAverageSeries(entries: WeightPoint[], startDay: number, en
   }
   return points;
 }
+
+const DAY_MS = 86_400_000;
+
+/** Number of calendar days from `startDay` to `endDay`, both included (a 30-day preset gives 30). */
+export function daysInRange(startDay: number, endDay: number): number {
+  return Math.round((startOfDay(endDay) - startOfDay(startDay)) / DAY_MS) + 1;
+}
+
+export interface Trend {
+  /** Change per day, in the points' unit. */
+  slopePerDay: number;
+  /** The fitted line's value at `x` (epoch ms). */
+  at: (x: number) => number;
+}
+
+/**
+ * Least-squares straight line through the points (x in epoch ms). Null with fewer than two points,
+ * or when they're all at the same moment (no slope to fit).
+ */
+export function linearTrend(points: { x: number; y: number }[]): Trend | null {
+  if (points.length < 2) return null;
+  const x0 = points[0].x;
+  // Days from the first point, so the sums stay small and the slope comes out per day.
+  const xs = points.map((p) => (p.x - x0) / DAY_MS);
+  const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const meanY = points.reduce((a, p) => a + p.y, 0) / points.length;
+  let sxx = 0;
+  let sxy = 0;
+  xs.forEach((x, i) => {
+    sxx += (x - meanX) ** 2;
+    sxy += (x - meanX) * (points[i].y - meanY);
+  });
+  if (sxx === 0) return null;
+  const slopePerDay = sxy / sxx;
+  return { slopePerDay, at: (x) => meanY + slopePerDay * ((x - x0) / DAY_MS - meanX) };
+}
+
+const UNIT_WORDS = { kg: ['kilogram', 'kilograms'], lb: ['pound', 'pounds'] } as const;
+
+/**
+ * How much the trend line falls or rises from the first to the last of `points` (oldest first), or null
+ * without a trend. Measured only where there are weigh-ins, so the line is never extended past the data.
+ */
+export function trendChange(trend: Trend | null, points: { x: number }[]): number | null {
+  if (!trend || points.length < 2) return null;
+  return trend.at(points[points.length - 1].x) - trend.at(points[0].x);
+}
+
+/**
+ * The sentence above the weight chart, in whole numbers, e.g. "You have lost 3 pounds over the past 30
+ * days. Congrats!" or "…gained… Work harder!!". `change` is from trendChange; `days` is the length of the chosen range. `endsToday` is false for
+ * a range that ends before today, which reads "over these 30 days" instead.
+ */
+export function trendSentence(change: number | null, days: number, unit: 'kg' | 'lb', endsToday = true): string {
+  if (change === null) return 'Log at least two weigh-ins in this period to see your trend.';
+  const span = `${endsToday ? 'the past' : 'these'} ${days} ${days === 1 ? 'day' : 'days'}`;
+  const amount = Math.round(Math.abs(change));
+  if (amount === 0) return `You have held your weight steady over ${span}.`;
+  const [one, many] = UNIT_WORDS[unit];
+  return change < 0
+    ? `You have lost ${amount} ${amount === 1 ? one : many} over ${span}. Congrats!`
+    : `You have gained ${amount} ${amount === 1 ? one : many} over ${span}. Work harder!!`;
+}
