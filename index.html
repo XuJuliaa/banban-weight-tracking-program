@@ -346,21 +346,30 @@
             <button type="button" class="secondary" id="sign-out-drive-btn">Sign out of Google Drive</button>
           </div>
           <p>
-            Export CSV files now and then as a backup. Import adds the rows of an exported weight, food or exercise CSV to your
-            profile; rows already logged are skipped.
+            Export your weight, food and exercise data now and then as a backup, as one .zip or three CSV files. Import takes
+            that .zip or any of the three CSVs; each file you pick replaces that part of your data.
           </p>
           <div class="button-row">
-            <button type="button" class="secondary" id="export-csv-btn">Export weight CSV</button>
-            <button type="button" class="secondary" id="export-food-csv-btn">Export food CSV</button>
-            <button type="button" class="secondary" id="export-exercise-csv-btn">Export exercise CSV</button>
-            <button type="button" class="secondary" id="import-btn" data-import="weight">Import weight CSV</button>
-            <button type="button" class="secondary" id="import-food-btn" data-import="food">Import food CSV</button>
-            <button type="button" class="secondary" id="import-exercise-btn" data-import="exercise">Import exercise CSV</button>
-            <input type="file" id="import-file" accept="text/csv,.csv" hidden />
+            <button type="button" class="secondary" id="export-btn">Export data…</button>
+            <button type="button" class="secondary" id="import-btn">Import data…</button>
+            <input type="file" id="import-file" multiple accept=".csv,.zip,text/csv,application/zip" hidden />
           </div>
         </section>
       </div>
     </main>
+
+    <dialog id="export-dialog" class="confirm-dialog" aria-labelledby="export-title">
+      <form method="dialog">
+        <h2 id="export-title">Export data</h2>
+        <p>Download your weight, food and exercise data as one .zip file or as three CSV files.</p>
+        <p class="muted small">For three files, your browser may ask to allow multiple downloads.</p>
+        <div class="button-row">
+          <button type="submit" value="zip">One .zip file</button>
+          <button type="submit" value="csv">3 CSV files</button>
+          <button type="submit" value="cancel" class="secondary" formnovalidate autofocus>Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
       <form method="dialog">

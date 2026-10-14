@@ -108,7 +108,7 @@ npm run dev        # serves http://localhost:5173
 
   Each has a matching dark mode that follows the system setting. Chart category colors come from a palette checked for color-blind separation and contrast.
 - **Required data folder on a hosted site.** Creating an account includes choosing the [folder on your computer](#saving-to-a-folder-on-a-hosted-site) where its CSV files are saved.
-- **Backup and restore.** Export the weight, food and exercise logs as CSV, and import any of them back.
+- **Backup and restore.** **Export data…** downloads the weight, food and exercise logs as one .zip or as three CSV files. **Import data…** takes that .zip or any one, two or three of the CSVs; each file picked replaces that log, and the others stay as they are.
 - **Works offline and installs like an app** (PWA). On a phone, use *Add to Home Screen*.
 
 ---
@@ -126,8 +126,8 @@ npm run dev        # serves http://localhost:5173
 | Log a workout | **Exercise log**: activity, category, minutes, Enter |
 | See a week of exercise | **Exercise** card → **Summary** tab |
 | See daily cardio minutes | **Exercise** card → **Cardio** tab |
-| Back up my data | **Data & backup** → Export weight / food / exercise CSV |
-| Restore a backup | **Data & backup** → Import weight / food / exercise CSV |
+| Back up my data | **Data & backup** → Export data… → One .zip file or 3 CSV files |
+| Restore a backup | **Data & backup** → Import data… → pick the .zip or up to three CSVs |
 | Pick the data folder (hosted site) | When creating an account; later **Data & backup** → **Change folder…** |
 | Switch person | **Log out** in the header, then log in as someone else |
 | Change colors | The swatches next to the title |
@@ -210,7 +210,7 @@ Browsers only reveal the folder's name to the page, not its full path.
 - **Narrow permission.** The app asks only for `drive.file`, so it can see the files it created and nothing else in your Drive.
 - **Signing in again.** Google's sign-in lasts an hour and isn't kept between visits. After a reload, and after an hour, the app shows **Sign in to Google** (one tap) before you can log anything. Only the profile's own Google account is accepted.
 - **Several devices.** The phone and the computer use the same files. When you come back to the tab, the open profile reloads from Drive. Saves replace whole files, so the last save wins.
-- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use import to bring existing data in.
+- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use **Import data…** to bring existing data in.
 - **Log out** also signs out of Google. The files stay in Drive.
 
 #### One-time setup (by whoever hosts the site)
@@ -248,27 +248,27 @@ All files are UTF-8 with a header row, oldest row first. Fields containing comma
 
 **Timestamps.** A timestamp without an offset (e.g. `2026-10-11T07:15:00`) is local time. One with an offset (`Z`, `+02:00`) is that exact moment.
 
-**Weight:** `testdata/<name>-weight.csv` and **Export weight CSV**.
+**Weight:** `testdata/<name>-weight.csv`, and `weight-<Name>-<date>.csv` in an export.
 ```
 timestamp,weight_kg,weight_lb,entered_unit
 2026-08-13T07:42:00,72.1,158.95,kg
 ```
-The unit it was typed in is exact; the other is converted (1 kg = 2.20462 lb, rounded to 0.01). **Import weight CSV** also accepts the older `timestamp,weight,unit` format. Rows at a time already in the profile are skipped, so importing the same file twice does nothing.
+The unit it was typed in is exact; the other is converted (1 kg = 2.20462 lb, rounded to 0.01). Import also accepts the older `timestamp,weight,unit` format.
 
-**Food:** `testdata/<name>-food.csv` and **Export food CSV**.
+**Food:** `testdata/<name>-food.csv`, and `food-<Name>-<date>.csv` in an export.
 ```
 timestamp,food,category
 2026-10-11T08:05:00,Oatmeal with berries,Grains & starches
 ```
-The category may be blank (uncategorized). Older two-column files still load. **Import food CSV** skips rows with the same time and food as an existing entry.
+The category may be blank (uncategorized). Older two-column files still load.
 
-**Exercise:** `testdata/<name>-exercise.csv` and **Export exercise CSV**.
+**Exercise:** `testdata/<name>-exercise.csv`, and `exercise-<Name>-<date>.csv` in an export.
 ```
 timestamp,activity,category,minutes
 2026-10-11T06:54:00,Swim,Cardio,20
 2026-10-11T18:30:00,"Weights, upper body",Strength,40
 ```
-The category is `Cardio`, `Strength` or `Flexibility`; minutes run from 1 to 1440. Rows that don't fit are skipped when reading. **Import exercise CSV** skips rows with the same time and activity as an existing entry.
+The category is `Cardio`, `Strength` or `Flexibility`; minutes run from 1 to 1440. Rows that don't fit are skipped when reading.
 
 ---
 
@@ -277,7 +277,7 @@ These are made-up data for trying the charts. The generators are seeded, so they
 
 | Command | Writes |
 | --- | --- |
-| `npm run sample-data` | `test/data/juju-60d.csv`: 60 days of weigh-ins (about 72 → 69.5 kg), ending today. Import it with **Import weight CSV** into a kg profile named **Juju**. |
+| `npm run sample-data` | `test/data/juju-60d.csv`: 60 days of weigh-ins (about 72 → 69.5 kg), ending today. Import it with **Import data…** into a kg profile named **Juju** (this replaces its weigh-ins). |
 | `npm run sample-food` | 60 days of meals in `testdata/juju-food.csv`. Backs up the current file to `testdata/.migrated/` first and keeps existing rows. |
 | `npm run sample-exercise` | 60 days of workouts in `testdata/juju-exercise.csv`. Backs up an existing file first and keeps existing rows. |
 
@@ -296,6 +296,7 @@ src/
   chart.ts                 weight line chart (SVG), axes and tick helpers
   bars.ts                  exercise minutes-per-day bar chart (SVG)
   pie.ts                   food breakdown pie (SVG)
+  backup.ts                import/export: recognising each CSV, zip and unzip, the import plan
   stats.ts                 10-day average, 30-day frequency, chart series, day helpers
   food.ts                  food categories and counts
   exercise.ts              exercise categories, summary, daily minutes
@@ -335,7 +336,7 @@ The tests cover:
 - food counts, the exercise summary and daily minutes
 - the chart geometry: monotone curve, pie slices and bar shapes
 - the folder file layout (in memory and on disk): writing, reading, validation and migration
-- import duplicate-skipping
+- import and export: recognising files, zip round trips, the import plan
 - the Google Drive store, against a fake Drive API
 - Google login: the session, the profile name and keeping Google profiles apart from username ones
 
