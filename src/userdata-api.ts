@@ -1,29 +1,83 @@
-// Talks to the local save service (server/userdata-plugin.ts), which keeps each profile in
-// userdata/<slug>-weight.csv and -food.csv. That service only exists under npm run dev / preview;
-// on a static host the first call fails and the app stops trying for the rest of the session.
+// Where profile CSV files are read from and written to. In order of preference:
+//   1. the local save service (server/userdata-plugin.ts), which keeps userdata/<slug>-*.csv;
+//      it only exists under npm run dev / preview;
+//   2. a folder the user picked in the browser (src/folder-store.ts), on a hosted site;
+//   3. the user's Google Drive (src/drive-store.ts), on a hosted site, in any browser.
+// Without any of them the app asks the user to choose (see renderGate in ui.ts).
+// All three hold the same files (src/profile-files.ts).
 
+import {
+  currentToken,
+  DRIVE_FOLDER_NAME,
+  DriveAuthError,
+  driveConfigured,
+  driveEmail,
+  type DriveState,
+  driveTextStore,
+  ensureFolder,
+  forgetDrive,
+  rememberDrive,
+  rememberedDrive,
+  preloadGoogle,
+  signIn,
+  signOut,
+} from './drive-store';
+import { folderSupported, folderTextStore, forgetFolder, hasPermission, pickFolder, rememberedFolder } from './folder-store';
 import { profileSlug } from './names';
+import * as files from './profile-files';
 import type { FileProfile, FileProfileData, UserData } from './types';
 
 /**
- * connected: the save service answered; unavailable: no service here (static host, phone);
- * offline: it existed but can't be reached now (dev server stopped); unknown: not asked yet.
+ * unknown: not asked yet; connected: the local save service answered; offline: it existed but can't be
+ * reached now (dev server stopped). Without a service: folder: saving to a picked folder;
+ * folder-permission: a folder is remembered but the browser needs a click to allow access again;
+ * drive: saving to Google Drive; drive-signin: Google Drive is chosen but needs signing in (each visit,
+ * and when the hour-long sign-in runs out); unavailable: nothing chosen yet; unsupported: nothing chosen
+ * and nothing to offer (no folder support and Google Drive isn't set up).
  */
-export type UserdataStatus = 'unknown' | 'connected' | 'unavailable' | 'offline';
+export type UserdataStatus =
+  | 'unknown'
+  | 'connected'
+  | 'offline'
+  | 'folder'
+  | 'folder-permission'
+  | 'drive'
+  | 'drive-signin'
+  | 'unavailable'
+  | 'unsupported';
 
+type Service = 'unknown' | 'connected' | 'offline' | 'absent';
+let service: Service = 'unknown';
+let servicePath: string | null = null;
+let folder: FileSystemDirectoryHandle | null = null;
+let folderAccess = false;
+let drive: DriveState | null = null;
+let driveStore: files.TextStore | null = null;
+let storesLoaded: Promise<void> | null = null;
 let status: UserdataStatus = 'unknown';
-let folderPath: string | null = null;
 const listeners = new Set<() => void>();
 
-function setStatus(next: UserdataStatus): void {
+function updateStatus(): void {
+  const next: UserdataStatus =
+    service !== 'absent' ? service
+    : folder ? (folderAccess ? 'folder' : 'folder-permission')
+    : drive ? (driveStore && currentToken() ? 'drive' : 'drive-signin')
+    : folderSupported() || driveConfigured() ? 'unavailable'
+    : 'unsupported';
   if (next === status) return;
   status = next;
   listeners.forEach((fn) => fn());
 }
 
 export const userdataStatus = () => status;
-/** Absolute path of the userdata/ folder on this computer, once known. */
-export const userdataPath = () => folderPath;
+/** The data folder: the absolute userdata/ path for the local service, a picked folder's name, or the Drive folder. */
+export const userdataPath = () =>
+  service === 'connected' ? servicePath
+  : folder ? folder.name
+  : drive ? `Google Drive › ${DRIVE_FOLDER_NAME}`
+  : null;
+/** The Google account whose Drive is used, if any. */
+export const driveAccount = () => drive?.email ?? null;
 export function onUserdataStatusChange(fn: () => void): void {
   listeners.add(fn);
 }
@@ -32,45 +86,160 @@ const url = (slug?: string) => `${import.meta.env.BASE_URL}api/userdata${slug ? 
 
 /** Returns the response, or null when the service isn't there (static host) or can't be reached right now. */
 async function call(slug: string | undefined, init?: RequestInit): Promise<Response | null> {
-  if (status === 'unavailable') return null;
+  if (service === 'absent') return null;
   let res: Response;
   try {
     res = await fetch(url(slug), { cache: 'no-store', ...init });
   } catch {
-    // Server stopped, or offline. Try again next time.
-    setStatus('offline');
+    // Never reached it (e.g. a hosted site opened offline): treat as no service. Reached before: try again next time.
+    service = service === 'unknown' ? 'absent' : 'offline';
+    updateStatus();
     return null;
   }
   // A static host answers 404/405, or serves index.html (not JSON) for unknown paths.
   const isHtml = res.headers.get('Content-Type')?.includes('text/html');
   if (res.status === 404 || res.status === 405 || res.status === 501 || isHtml) {
-    setStatus('unavailable');
+    service = 'absent';
+    updateStatus();
     return null;
   }
-  setStatus('connected');
+  service = 'connected';
+  updateStatus();
   if (!res.ok) throw new Error(`userdata ${res.status}: ${await res.text()}`);
   return res;
 }
 
-/** Profiles in userdata/, or null when the save service isn't available. */
+/** Restores the folder or Google Drive chosen on an earlier visit (once per page load). */
+function loadStores(): Promise<void> {
+  return (storesLoaded ??= (async () => {
+    if (folderSupported()) {
+      folder = await rememberedFolder();
+      folderAccess = folder ? await hasPermission(folder, false).catch(() => false) : false;
+    }
+    if (!folder && driveConfigured()) {
+      drive = await rememberedDrive();
+      // Load Google's sign-in script ahead of the click that needs it.
+      if (drive || !folderSupported()) preloadGoogle();
+    }
+  })());
+}
+
+/** A token for Drive calls. Signing in again needs a click, so a missing token means "ask the user". */
+async function driveToken(): Promise<string> {
+  const value = currentToken();
+  if (value) return value;
+  throw new DriveAuthError();
+}
+
+/** The data store to use right now, if there's no service and the user's choice is ready (never prompts). */
+async function activeStore(): Promise<files.TextStore | null> {
+  if (service !== 'absent') return null;
+  await loadStores();
+  updateStatus();
+  if (folder) return folderAccess ? folderTextStore(folder) : null;
+  if (drive && driveStore && currentToken()) return driveStore;
+  return null;
+}
+
+/** Runs a Drive call; when Google no longer accepts the sign-in, switches to "drive-signin" so the app asks again. */
+async function guarded<T>(task: () => Promise<T>): Promise<T> {
+  try {
+    return await task();
+  } catch (err) {
+    if (err instanceof DriveAuthError) {
+      driveStore = null;
+      updateStatus();
+    }
+    throw err;
+  }
+}
+
+/** Profiles in the data folder, or null when there's no data folder. */
 export async function fetchProfileList(): Promise<FileProfile[] | null> {
   const res = await call(undefined);
-  if (!res) return null;
-  const body = (await res.json()) as { dir: string; profiles: FileProfile[] };
-  folderPath = body.dir;
-  return body.profiles;
+  if (res) {
+    const body = (await res.json()) as { dir: string; profiles: FileProfile[] };
+    servicePath = body.dir;
+    return body.profiles;
+  }
+  const store = await activeStore();
+  return store ? guarded(() => files.listProfiles(store)) : null;
 }
 
-/** A profile's data from userdata/: null if it has no files, undefined if the service isn't available. */
+/** A profile's data from the data folder: null if it has no files, undefined if there's no data folder. */
 export async function fetchProfile(name: string): Promise<FileProfileData | null | undefined> {
   const res = await call(profileSlug(name));
-  return res ? ((await res.json()) as FileProfileData | null) : undefined;
+  if (res) return (await res.json()) as FileProfileData | null;
+  const store = await activeStore();
+  return store ? guarded(() => files.readProfile(store, profileSlug(name))) : undefined;
 }
 
+/** Rewrites the user's CSV files in the data folder. Does nothing when there's no data folder. */
 export async function pushUserFiles(user: UserData): Promise<void> {
-  await call(profileSlug(user.name), {
+  const slug = profileSlug(user.name);
+  const res = await call(slug, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(user),
   });
+  if (res) return;
+  const store = await activeStore();
+  if (store) await guarded(() => files.writeProfile(store, files.validateUser(user, slug)));
+}
+
+/** Lets the user pick a data folder (call from a click). Returns its name, or null if they cancelled. */
+export async function chooseFolder(): Promise<string | null> {
+  const picked = await pickFolder();
+  if (!picked) return null;
+  folder = picked;
+  folderAccess = await hasPermission(picked, true);
+  // One data store at a time: a folder replaces Google Drive.
+  if (drive) await stopDrive();
+  storesLoaded = Promise.resolve();
+  updateStatus();
+  return picked.name;
+}
+
+async function stopDrive(): Promise<void> {
+  drive = null;
+  driveStore = null;
+  await signOut();
+}
+
+/**
+ * Signs in to Google (call from a click) and uses the "Weight Tracker" folder in that Drive.
+ * Returns the account's email. Replaces a chosen folder.
+ */
+export async function useGoogleDrive(): Promise<string> {
+  // Sign in first, straight from the click: browsers (Safari especially) block pop-ups opened later.
+  await signIn(drive?.email);
+  await loadStores();
+  const folderId = drive?.folderId ?? (await ensureFolder(driveToken));
+  const email = await driveEmail(driveToken);
+  drive = { folderId, email };
+  driveStore = driveTextStore(driveToken, folderId);
+  await rememberDrive(drive);
+  if (folder) {
+    await forgetFolder();
+    folder = null;
+    folderAccess = false;
+  }
+  storesLoaded = Promise.resolve();
+  updateStatus();
+  return email;
+}
+
+/** Signs out of Google Drive. The files stay in Drive; the app asks where to save next. */
+export async function signOutDrive(): Promise<void> {
+  await stopDrive();
+  await forgetDrive();
+  updateStatus();
+}
+
+/** Asks the browser to allow the remembered folder again (call from a click). */
+export async function reconnectFolder(): Promise<boolean> {
+  if (!folder) return false;
+  folderAccess = await hasPermission(folder, true);
+  updateStatus();
+  return folderAccess;
 }

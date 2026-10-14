@@ -39,14 +39,29 @@
     </header>
 
     <main>
+      <section class="card folder-gate" id="folder-gate" hidden>
+        <h2 id="folder-gate-title"></h2>
+        <p id="folder-gate-text"></p>
+        <div class="button-row">
+          <button type="button" id="folder-gate-btn"></button>
+          <button type="button" class="drive-button" id="drive-gate-btn" hidden></button>
+        </div>
+      </section>
+
       <section class="card" id="onboarding" hidden>
         <h2>Create your profile</h2>
-        <p class="muted">Your data stays on this computer: in the project's <code>userdata/</code> folder when you run the app with <code>npm run dev</code>, otherwise only in this browser.</p>
+        <p class="muted">Your data is saved as CSV files in the place you choose below. There's no account with us, and the app has no server of its own.</p>
         <form id="onboarding-form" class="profile-form">
           <label>Name <input name="name" required maxlength="40" autocomplete="off" /></label>
           <label>Unit
             <select name="unit"><option value="kg">kg</option><option value="lb">lb</option></select>
           </label>
+          <div class="folder-field" data-folder-field>
+            <span class="folder-field-label">Where to save your data <span class="required">(required)</span></span>
+            <p class="folder-field-status small" data-folder-status></p>
+            <button type="button" class="secondary" data-folder-action>Choose folder…</button>
+            <button type="button" class="secondary drive-button" data-drive-action hidden>Use Google Drive</button>
+          </div>
           <button type="submit">Create profile</button>
         </form>
       </section>
@@ -276,15 +291,24 @@
           <h2>Data &amp; backup</h2>
           <p id="folder-status"></p>
           <ul class="folder-files" id="folder-files" hidden></ul>
+          <div class="button-row folder-actions" id="folder-actions" hidden>
+            <button type="button" class="secondary" id="choose-folder-btn">Choose data folder…</button>
+            <button type="button" class="secondary" id="reconnect-folder-btn">Reconnect folder</button>
+            <button type="button" class="secondary" id="change-folder-btn">Change folder…</button>
+            <button type="button" class="secondary" id="use-drive-btn">Use Google Drive</button>
+            <button type="button" class="secondary" id="sign-out-drive-btn">Sign out of Google Drive</button>
+          </div>
           <p>
-            Export CSV files now and then as a backup. Import adds weigh-ins from a weight CSV with
-            <code>timestamp,weight_kg,weight_lb</code> (or <code>timestamp,weight,unit</code>) columns to the selected profile.
+            Export CSV files now and then as a backup. Import adds the rows of an exported weight, food or exercise CSV to the
+            selected profile; rows already logged are skipped.
           </p>
           <div class="button-row">
             <button type="button" class="secondary" id="export-csv-btn">Export weight CSV</button>
             <button type="button" class="secondary" id="export-food-csv-btn">Export food CSV</button>
             <button type="button" class="secondary" id="export-exercise-csv-btn">Export exercise CSV</button>
-            <button type="button" class="secondary" id="import-btn">Import weight CSV</button>
+            <button type="button" class="secondary" id="import-btn" data-import="weight">Import weight CSV</button>
+            <button type="button" class="secondary" id="import-food-btn" data-import="food">Import food CSV</button>
+            <button type="button" class="secondary" id="import-exercise-btn" data-import="exercise">Import exercise CSV</button>
             <input type="file" id="import-file" accept="text/csv,.csv" hidden />
           </div>
         </section>
@@ -298,6 +322,12 @@
         <label>Unit
           <select name="unit"><option value="kg">kg</option><option value="lb">lb</option></select>
         </label>
+        <div class="folder-field" data-folder-field>
+          <span class="folder-field-label">Where to save your data <span class="required">(required)</span></span>
+          <p class="folder-field-status small" data-folder-status></p>
+          <button type="button" class="secondary" data-folder-action>Choose folder…</button>
+            <button type="button" class="secondary drive-button" data-drive-action hidden>Use Google Drive</button>
+        </div>
         <div class="button-row">
           <button type="submit" value="create">Create</button>
           <button type="button" class="secondary" id="new-profile-cancel">Cancel</button>

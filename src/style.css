@@ -303,6 +303,8 @@ h2 { font-size: 1.05rem; margin: 0 0 12px; }
 
 main { display: grid; gap: 16px; padding-top: 0; }
 #tracker { display: grid; gap: 16px; }
+/* Elements hidden by the app stay hidden even when a class sets display (flex rows, buttons, charts). */
+[hidden] { display: none !important; }
 #tracker[hidden] { display: none; }
 
 .card {
@@ -712,3 +714,28 @@ code { font-size: 0.85em; }
 .exercise-data td:not(:first-child):not(.num), .exercise-data th:not(:first-child):not(.num) { text-align: left; font-variant-numeric: normal; }
 .exercise-data td:first-child { white-space: nowrap; color: var(--muted); padding-right: 16px; }
 .exercise-data .food-tag { font-size: 0.85rem; }
+
+/* Required "Data folder" field in the create-profile forms. */
+.folder-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--accent-bright);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.folder-field-label, .folder-field-status { flex: 1 0 100%; }
+.folder-field-label { font-weight: 600; }
+.folder-field .required { font-weight: 400; color: var(--muted); }
+.folder-field-status { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.folder-field button { min-height: 36px; }
+.folder-field.ready { border-style: solid; border-color: var(--border); background: var(--surface); }
+.folder-field.ready .folder-field-status { color: var(--text); }
+.folder-field.ready .folder-field-status::before { content: '✓ '; color: var(--accent); font-weight: 700; }
+
+/* Shown instead of the app when the data folder is missing, needs reconnecting, or isn't supported. */
+.folder-gate { border-top: 3px solid var(--accent-bright); }
+.folder-gate h2 { color: var(--accent); }
+.folder-gate p { max-width: 60ch; }

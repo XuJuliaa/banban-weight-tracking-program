@@ -9,8 +9,16 @@ import {
   syncProfileListFromFiles,
   setSyncErrorHandler,
 } from './storage';
-import { parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
-import { onUserdataStatusChange, userdataPath, userdataStatus } from './userdata-api';
+import { mergeNew, parseExerciseCsv, parseFoodCsv, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import {
+  chooseFolder,
+  onUserdataStatusChange,
+  signOutDrive,
+  useGoogleDrive,
+  reconnectFolder,
+  userdataPath,
+  userdataStatus,
+} from './userdata-api';
 import type { ProfileSummary, UserData, WeightUnit } from './types';
 import { dayKey, startOfDay } from './stats';
 import { overrideDay } from './edits';
@@ -22,6 +30,9 @@ import {
   formatEntry,
   renderChart,
   renderFolder,
+  renderFolderFields,
+  renderGate,
+  folderReady,
   renderOverride,
   renderExerciseBreakdown,
   renderFoodBreakdown,
@@ -104,6 +115,13 @@ function render(): void {
   renderProfiles(profiles, current?.userId ?? null);
   renderUser(current, Date.now());
   renderFolder(userdataStatus(), userdataPath(), current);
+  renderFolderFields(userdataStatus(), userdataPath());
+  // Saving to a folder is required: without one, show what to do instead of the app.
+  if (renderGate(userdataStatus(), userdataPath(), profiles.length > 0)) {
+    dom.onboarding.hidden = true;
+    dom.tracker.hidden = true;
+    dom.profileControls.hidden = true;
+  }
   if (current) renderOverride(current, readDateInput(dom.overrideDate));
   drawChart();
   drawFoodBreakdown();
@@ -124,6 +142,12 @@ async function selectProfile(userId: string | null): Promise<void> {
   render();
 }
 
+/** Reloads the open profile from the data folder, keeping the chosen date ranges. */
+async function reloadCurrent(): Promise<void> {
+  if (current) current = await loadUserFromFiles(current);
+  render();
+}
+
 async function refreshProfiles(selectId?: string | null): Promise<void> {
   profiles = await listProfiles();
   const wanted = selectId ?? current?.userId ?? recalledProfile();
@@ -138,9 +162,17 @@ function readProfileForm(form: HTMLFormElement): { name: string; unit: WeightUni
   return name ? { name, unit } : null;
 }
 
+/** Profiles can only be created once their data has a folder to go to. */
+function folderChosen(form: HTMLFormElement): boolean {
+  if (folderReady(userdataStatus())) return true;
+  showToast('Choose a data folder first');
+  form.querySelector<HTMLButtonElement>('[data-folder-action]')?.focus();
+  return false;
+}
+
 async function addProfile(form: HTMLFormElement): Promise<void> {
   const values = readProfileForm(form);
-  if (!values) return;
+  if (!values || !folderChosen(form)) return;
   const { user, existed } = await createProfile(values.name, values.unit);
   form.reset();
   await refreshProfiles(user.userId);
@@ -156,6 +188,7 @@ dom.newProfileBtn.addEventListener('click', () => dom.newProfileDialog.showModal
 dom.newProfileCancel.addEventListener('click', () => dom.newProfileDialog.close());
 dom.newProfileForm.addEventListener('submit', (event) => {
   event.preventDefault();
+  if (!folderChosen(dom.newProfileForm)) return;
   dom.newProfileDialog.close();
   void addProfile(dom.newProfileForm);
 });
@@ -442,32 +475,73 @@ dom.exportCsvBtn.addEventListener('click', () => current && downloadCsv(toWeight
 dom.exportFoodCsvBtn.addEventListener('click', () => current && downloadCsv(toFoodCsv(current), 'food'));
 dom.exportExerciseCsvBtn.addEventListener('click', () => current && downloadCsv(toExerciseCsv(current), 'exercise'));
 
-/** Entries from a CSV, added to the selected profile. Rows already logged at the same time are skipped. */
-async function importCsv(text: string, fileName: string): Promise<void> {
+type ImportKind = 'weight' | 'food' | 'exercise';
+const IMPORT_NOUN: Record<ImportKind, [string, string]> = {
+  weight: ['weigh-in', 'weigh-ins'],
+  food: ['food entry', 'food entries'],
+  exercise: ['exercise session', 'exercise sessions'],
+};
+
+/**
+ * Rows from an exported CSV, added to the selected profile after a confirmation. Rows already logged
+ * (same time; for food and exercise also the same text) are skipped, so importing twice adds nothing.
+ */
+async function importCsv(kind: ImportKind, text: string, fileName: string): Promise<void> {
   if (!current) {
     showToast('Create or select a profile first, then import the CSV');
     return;
   }
-  const { entries, skipped } = parseWeightCsv(text, current.unit);
-  const seen = new Set(current.entries.map((e) => e.timestamp));
-  const fresh = entries.filter((e) => !seen.has(e.timestamp) && seen.add(e.timestamp));
+  const user = current;
+  let total: number;
+  let skipped: number[] = [];
+  let add: () => void;
+  let count: number;
+  if (kind === 'weight') {
+    const parsed = parseWeightCsv(text, user.unit);
+    skipped = parsed.skipped;
+    total = parsed.entries.length;
+    const fresh = mergeNew(user.entries, parsed.entries, (e) => String(e.timestamp));
+    count = fresh.length;
+    add = () => user.entries.push(...fresh.map((e) => ({ id: crypto.randomUUID(), ...e })));
+  } else if (kind === 'food') {
+    const rows = parseFoodCsv(text);
+    total = rows.length;
+    const fresh = mergeNew(user.foods ?? [], rows, (f) => `${f.timestamp}|${f.text}`);
+    count = fresh.length;
+    add = () => (user.foods = [...(user.foods ?? []), ...fresh.map((f) => ({ id: crypto.randomUUID(), ...f }))]);
+  } else {
+    const rows = parseExerciseCsv(text);
+    total = rows.length;
+    const fresh = mergeNew(user.exercises ?? [], rows, (x) => `${x.timestamp}|${x.name}`);
+    count = fresh.length;
+    add = () => (user.exercises = [...(user.exercises ?? []), ...fresh.map((x) => ({ id: crypto.randomUUID(), ...x }))]);
+  }
+
+  const [one, many] = IMPORT_NOUN[kind];
+  const noun = (n: number) => `${n} ${n === 1 ? one : many}`;
   const notes = [
-    entries.length > fresh.length ? `${entries.length - fresh.length} already logged` : '',
+    total > count ? `${total - count} already logged` : '',
     skipped.length ? `${skipped.length} unreadable (line ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? ', …' : ''})` : '',
   ].filter(Boolean);
-  if (fresh.length === 0) {
+  if (count === 0) {
     showToast(`Nothing new to add from ${fileName}${notes.length ? ` (${notes.join('; ')})` : ''}`);
     return;
   }
-  const question = `Add ${fresh.length} entries from ${fileName} to "${current.name}"?`;
+  const question = `Add ${noun(count)} from ${fileName} to "${user.name}"?`;
   if (!confirm(notes.length ? `${question}\n\nSkipping: ${notes.join('; ')}.` : question)) return;
-  current.entries.push(...fresh.map((e) => ({ id: crypto.randomUUID(), ...e })));
-  await saveUser(current);
+  add();
+  await saveUser(user);
   render();
-  showToast(`Added ${fresh.length} entries to "${current.name}"`);
+  showToast(`Added ${noun(count)} to "${user.name}"`);
 }
 
-dom.importBtn.addEventListener('click', () => dom.importFile.click());
+let importKind: ImportKind = 'weight';
+for (const button of [dom.importBtn, dom.importFoodBtn, dom.importExerciseBtn]) {
+  button.addEventListener('click', () => {
+    importKind = button.dataset.import as ImportKind;
+    dom.importFile.click();
+  });
+}
 dom.importFile.addEventListener('change', async () => {
   const file = dom.importFile.files?.[0];
   dom.importFile.value = '';
@@ -477,18 +551,115 @@ dom.importFile.addEventListener('change', async () => {
       showToast('Choose a .csv file');
       return;
     }
-    await importCsv(await file.text(), file.name);
+    await importCsv(importKind, await file.text(), file.name);
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Import failed');
   }
 });
 
+// --- Data folder: on a hosted site, Chrome/Edge can save the CSV files to a folder the user picks.
+
+async function useFolder(name: string | null): Promise<void> {
+  if (!name) return;
+  if (userdataStatus() !== 'folder') {
+    showToast(`The browser didn't allow access to "${name}"`);
+    return;
+  }
+  await loadFromStore(`Saving to folder "${name}"`);
+}
+
+/** Same rule as the local userdata/ folder: profiles in the store load from it; the rest are written to it. */
+async function loadFromStore(message: string): Promise<void> {
+  await syncProfileListFromFiles();
+  await refreshProfiles();
+  showToast(message);
+}
+
+/** Signs in to Google (from a click) and saves to the "Weight Tracker" folder in that Drive. */
+async function useDrive(): Promise<void> {
+  try {
+    const email = await useGoogleDrive();
+    await loadFromStore(`Saving to Google Drive${email ? ` (${email})` : ''}`);
+  } catch (err) {
+    console.error(err);
+    showToast(err instanceof Error ? err.message : "Couldn't connect to Google Drive");
+  }
+}
+
+/** Switches to Google Drive; with profiles already here, first explains what happens to them. */
+async function pickDrive(): Promise<void> {
+  if (userdataStatus() === 'drive-signin' || profiles.length === 0) return useDrive();
+  const ok = await confirmChange({
+    title: 'Save to Google Drive?',
+    message: 'Sign in with Google. Your profiles will be saved as CSV files in a "Weight Tracker" folder in your Drive after every change.',
+    lines: [
+      'If that folder already has files for a profile with the same name, those files are loaded and replace this browser\'s copy.',
+      'Profiles that are only in this browser are written to Drive.',
+      'The app can only see files it created, not the rest of your Drive.',
+    ],
+    confirmLabel: 'Continue to Google…',
+  });
+  if (ok) await useDrive();
+}
+
+/** Picks a data folder. With profiles already here, first explains what happens to them. */
+async function pickDataFolder(): Promise<void> {
+  if (profiles.length === 0) {
+    await useChosenFolder();
+    return;
+  }
+  const ok = await confirmChange({
+    title: 'Save to a folder?',
+    message: 'Pick a folder on this computer. Your profiles will be saved there as CSV files after every change.',
+    lines: [
+      'If the folder already has files for a profile with the same name, those files are loaded and replace this browser\'s copy.',
+      'Profiles that are only in this browser are written to the folder.',
+    ],
+    confirmLabel: 'Choose folder…',
+  });
+  if (ok) await useChosenFolder();
+}
+
+async function useChosenFolder(): Promise<void> {
+  try {
+    await useFolder(await chooseFolder());
+  } catch (err) {
+    console.error(err);
+    showToast("Couldn't open that folder");
+  }
+}
+
+async function reconnect(): Promise<void> {
+  if (await reconnectFolder()) await useFolder(userdataPath());
+  else showToast("The browser didn't allow access to the folder");
+}
+
+/** The folder button in the create-profile forms and on the gate: choose, change or reconnect, by status. */
+function folderAction(): void {
+  void (userdataStatus() === 'folder-permission' ? reconnect() : pickDataFolder());
+}
+
+dom.chooseFolderBtn.addEventListener('click', () => void pickDataFolder());
+dom.changeFolderBtn.addEventListener('click', () => void pickDataFolder());
+dom.reconnectFolderBtn.addEventListener('click', () => void reconnect());
+dom.folderGateBtn.addEventListener('click', folderAction);
+dom.driveGateBtn.addEventListener('click', () => void pickDrive());
+dom.useDriveBtn.addEventListener('click', () => void pickDrive());
+dom.signOutDriveBtn.addEventListener('click', async () => {
+  await signOutDrive();
+  showToast('Signed out of Google Drive. Your files are still in Drive.');
+});
+for (const field of dom.folderFields) {
+  field.querySelector('[data-folder-action]')!.addEventListener('click', folderAction);
+  field.querySelector('[data-drive-action]')!.addEventListener('click', () => void pickDrive());
+}
+
 setSyncErrorHandler((err) => {
   console.error(err);
-  showToast("Saved here, but couldn't write the userdata/ CSV files");
+  showToast("Saved here, but couldn't write the CSV files in the data folder");
 });
 
-onUserdataStatusChange(() => renderFolder(userdataStatus(), userdataPath(), current));
+onUserdataStatusChange(render);
 
 dom.rangeStart.addEventListener('change', drawChart);
 dom.rangeEnd.addEventListener('change', drawChart);
@@ -516,8 +687,11 @@ new ResizeObserver(([entry]) => {
 }).observe(dom.exerciseCard);
 
 // Recompute stats when the app comes back into view, since the windows depend on today's date.
+// With Google Drive, also reload the profile: it may have been changed from another device.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') render();
+  if (document.visibilityState !== 'visible') return;
+  if (userdataStatus() === 'drive' && current) void reloadCurrent();
+  else render();
 });
 
 initThemePicker(document.getElementById('theme-picker')!);
