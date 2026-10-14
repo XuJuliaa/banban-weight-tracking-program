@@ -2,7 +2,18 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { listProfiles, migrate, readProfile, removeProfile, upgradeWeightFiles, validateUser, writeProfile } from './userdata-files';
+import { accountCsv } from '../src/profile-files';
+import {
+  listProfiles,
+  migrate,
+  readAccount,
+  readProfile,
+  removeProfile,
+  upgradeWeightFiles,
+  validateUser,
+  writeAccount,
+  writeProfile,
+} from './userdata-files';
 
 const at = (h: number, m = 0) => new Date(2026, 9, 11, h, m).getTime();
 const juju = {
@@ -21,6 +32,17 @@ afterEach(async () => {
 });
 
 describe('userdata files', () => {
+  it('writes and reads <slug>-account.csv, refusing files that are not a valid account for that name', async () => {
+    const text = accountCsv({ name: 'Juju', slug: 'juju', salt: 'c2FsdA==', hash: 'aGFzaA==', iterations: 1000 });
+    expect(await readAccount(dir, 'juju')).toBeNull();
+    await writeAccount(dir, 'juju', text);
+    expect(await readAccount(dir, 'juju')).toBe(text);
+    await expect(writeAccount(dir, 'other', text)).rejects.toThrow(/Invalid/);
+    await expect(writeAccount(dir, 'juju', 'hello')).rejects.toThrow(/Invalid/);
+    // An account file isn't a profile.
+    expect(await listProfiles(dir)).toEqual([]);
+  });
+
   it('writes <slug>-exercise.csv when the record has exercises, and reads it back', async () => {
     const exercises = [{ id: 'x1', timestamp: at(6, 45), name: 'Morning run', category: 'cardio' as const, minutes: 30 }];
     await writeProfile(dir, { ...juju, exercises });

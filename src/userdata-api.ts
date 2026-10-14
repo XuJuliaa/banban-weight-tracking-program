@@ -4,6 +4,7 @@
 //   2. a folder the user picked in the browser (src/folder-store.ts), on a hosted site;
 //   3. the user's Google Drive (src/drive-store.ts), on a hosted site, in any browser.
 // Without any of them the app asks the user to choose (see renderGate in ui.ts).
+// The folder belongs to the logged-in account (see openAccount): each login remembers its own.
 // All three hold the same files (src/profile-files.ts).
 
 import {
@@ -22,7 +23,15 @@ import {
   signIn,
   signOut,
 } from './drive-store';
-import { folderSupported, folderTextStore, forgetFolder, hasPermission, pickFolder, rememberedFolder } from './folder-store';
+import {
+  folderSupported,
+  folderTextStore,
+  forgetFolder,
+  hasPermission,
+  pickFolder,
+  rememberedFolder,
+  rememberFolder,
+} from './folder-store';
 import { profileSlug } from './names';
 import * as files from './profile-files';
 import type { FileProfile, FileProfileData, UserData } from './types';
@@ -48,6 +57,7 @@ export type UserdataStatus =
 
 type Service = 'unknown' | 'connected' | 'offline' | 'absent';
 let service: Service = 'unknown';
+let account: string | null = null;
 let servicePath: string | null = null;
 let folder: FileSystemDirectoryHandle | null = null;
 let folderAccess = false;
@@ -82,14 +92,15 @@ export function onUserdataStatusChange(fn: () => void): void {
   listeners.add(fn);
 }
 
-const url = (slug?: string) => `${import.meta.env.BASE_URL}api/userdata${slug ? `/${encodeURIComponent(slug)}` : ''}`;
+const url = (slug?: string, suffix = '') =>
+  `${import.meta.env.BASE_URL}api/userdata${slug ? `/${encodeURIComponent(slug)}${suffix}` : ''}`;
 
 /** Returns the response, or null when the service isn't there (static host) or can't be reached right now. */
-async function call(slug: string | undefined, init?: RequestInit): Promise<Response | null> {
+async function call(slug: string | undefined, init?: RequestInit, suffix = ''): Promise<Response | null> {
   if (service === 'absent') return null;
   let res: Response;
   try {
-    res = await fetch(url(slug), { cache: 'no-store', ...init });
+    res = await fetch(url(slug, suffix), { cache: 'no-store', ...init });
   } catch {
     // Never reached it (e.g. a hosted site opened offline): treat as no service. Reached before: try again next time.
     service = service === 'unknown' ? 'absent' : 'offline';
@@ -109,11 +120,11 @@ async function call(slug: string | undefined, init?: RequestInit): Promise<Respo
   return res;
 }
 
-/** Restores the folder or Google Drive chosen on an earlier visit (once per page load). */
+/** Restores the account's folder, or the Google Drive chosen on an earlier visit (once per login). */
 function loadStores(): Promise<void> {
   return (storesLoaded ??= (async () => {
-    if (folderSupported()) {
-      folder = await rememberedFolder();
+    if (folderSupported() && account) {
+      folder = await rememberedFolder(account);
       folderAccess = folder ? await hasPermission(folder, false).catch(() => false) : false;
     }
     if (!folder && driveConfigured()) {
@@ -191,6 +202,7 @@ export async function pushUserFiles(user: UserData): Promise<void> {
 export async function chooseFolder(): Promise<string | null> {
   const picked = await pickFolder();
   if (!picked) return null;
+  if (account) await rememberFolder(account, picked);
   folder = picked;
   folderAccess = await hasPermission(picked, true);
   // One data store at a time: a folder replaces Google Drive.
@@ -220,7 +232,7 @@ export async function useGoogleDrive(): Promise<string> {
   driveStore = driveTextStore(driveToken, folderId);
   await rememberDrive(drive);
   if (folder) {
-    await forgetFolder();
+    if (account) await forgetFolder(account);
     folder = null;
     folderAccess = false;
   }
@@ -242,4 +254,56 @@ export async function reconnectFolder(): Promise<boolean> {
   folderAccess = await hasPermission(folder, true);
   updateStatus();
   return folderAccess;
+}
+
+/** True when the local save service (npm run dev / preview) is there; then the data folder is always userdata/. */
+export async function localService(): Promise<boolean> {
+  await call(undefined).catch(() => null);
+  return service === 'connected';
+}
+
+/** Lets the user pick a folder for a login that isn't open yet (call from a click). Null if they cancel. */
+export const pickAccountFolder = pickFolder;
+
+/**
+ * The text of <slug>-account.csv: from the local service, else from `handle` (a folder picked at login),
+ * else from the open account's folder. Null when it doesn't exist or there's nowhere to look.
+ */
+export async function readAccountText(slug: string, handle?: FileSystemDirectoryHandle | null): Promise<string | null> {
+  const res = await call(slug, undefined, '/account');
+  if (res) return ((await res.json()) as { text: string | null }).text;
+  const store = handle ? folderTextStore(handle) : await activeStore();
+  return store ? store.read(files.accountFile(slug)) : null;
+}
+
+/** Writes <slug>-account.csv to the same place readAccountText reads it from. */
+export async function writeAccountText(slug: string, text: string, handle?: FileSystemDirectoryHandle | null): Promise<void> {
+  const res = await call(slug, { method: 'PUT', headers: { 'Content-Type': 'text/csv' }, body: text }, '/account');
+  if (res) return;
+  const store = handle ? folderTextStore(handle) : await activeStore();
+  if (!store) throw new Error('No data folder to save the account in');
+  await guarded(() => store.write(files.accountFile(slug), text));
+}
+
+/**
+ * Opens a login's data folder: `handle` if one was just picked (it's remembered for next time), otherwise
+ * the folder remembered for this account. With `ask`, the browser may ask to allow the folder again,
+ * which needs a click (the Log in button); without it, a folder needing permission shows "Reconnect".
+ */
+export async function openAccount(slug: string, handle: FileSystemDirectoryHandle | null, ask: boolean): Promise<void> {
+  account = slug;
+  if (handle) await rememberFolder(slug, handle);
+  storesLoaded = null;
+  await loadStores();
+  if (folder && !folderAccess && ask) folderAccess = await hasPermission(folder, true).catch(() => false);
+  updateStatus();
+}
+
+/** Closes the login's folder (log out). Nothing is deleted; logging in again reopens it. */
+export function closeAccount(): void {
+  account = null;
+  folder = null;
+  folderAccess = false;
+  storesLoaded = null;
+  updateStatus();
 }
