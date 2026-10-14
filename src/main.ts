@@ -121,7 +121,7 @@ function render(): void {
 
 async function selectProfile(userId: string | null): Promise<void> {
   current = userId ? ((await loadUser(userId)) ?? null) : null;
-  // When running locally, the userdata/ files hold the latest data for this name.
+  // When running locally, the testdata/ files hold the latest data for this name.
   if (current) current = await loadUserFromFiles(current);
   // The weight chart and the food pie both open on the last 30 days.
   setRange(daysAgo(29), Date.now());
@@ -146,7 +146,7 @@ let missingName: string | null = null;
 const usernameIn = (form: HTMLFormElement) => String(new FormData(form).get('username') ?? '').trim();
 
 /**
- * The weigh-ins of the profile with this name, or null if there isn't one: from userdata/ when running
+ * The weigh-ins of the profile with this name, or null if there isn't one: from testdata/ when running
  * locally; on a hosted site, from this browser's copy (the browser also remembers the profile's folder).
  */
 async function knownEntries(name: string, local: boolean): Promise<WeightEntry[] | null> {
@@ -540,7 +540,7 @@ document.getElementById('exercise-tabs')!.addEventListener('keydown', (event) =>
 const longDay = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
 // Category dropdowns in the food data table. Adding a category to an uncategorized entry saves right
-// away; changing an existing category asks first. Either way the save rewrites userdata/<name>-food.csv.
+// away; changing an existing category asks first. Either way the save rewrites testdata/<name>-food.csv.
 dom.foodTableBody.addEventListener('change', async (event) => {
   const select = (event.target as HTMLElement).closest<HTMLSelectElement>('select.food-category-select');
   const food = current?.foods?.find((f) => f.id === select?.dataset.foodId);

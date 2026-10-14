@@ -2,7 +2,7 @@
 
 A private tracker for **weight, food and exercise**. There's no account, no sign-in and no remote server.
 
-- **Running locally** with `npm run dev`, every profile is saved as plain CSV files in the project's `userdata/` folder.
+- **Running locally** with `npm run dev`, every profile is saved as plain CSV files in the project's `testdata/` folder.
 - **Hosted as a static site** (just open a link), you choose where the same CSV files are kept when creating a profile:
   - a **folder on your computer** (Chrome, Edge, Brave or Arc on a computer), or
   - your **Google Drive**, which works in any browser, phones included.
@@ -38,7 +38,7 @@ npm run dev        # serves http://localhost:5173
 
 1. Create a profile: type a name and pick **kg** or **lb**.
 2. Log a weight, a meal or a workout. The date and time always come from the device clock.
-3. Your entries are written to `userdata/<name>-weight.csv`, `-food.csv` and `-exercise.csv` right away.
+3. Your entries are written to `testdata/<name>-weight.csv`, `-food.csv` and `-exercise.csv` right away.
 
 ---
 
@@ -47,7 +47,7 @@ npm run dev        # serves http://localhost:5173
 ### Weight
 - **Log a weight.** Type the number and press Enter. The timestamp comes from the device.
 - **10-day average.** The average over the last 10 calendar days, today included. Several weigh-ins on one day are averaged first, so each day counts once.
-- **60-day logging frequency.** The share of the last 60 calendar days with at least one weigh-in, e.g. "70%" (42 of 60 days).
+- **30-day logging frequency.** The share of the past 30 calendar days with at least one weigh-in, e.g. "70%" (21 of 30 days).
 - **Weight trend chart.** One chart with two lines:
   - every weigh-in, as dots joined by a thin line
   - the 10-day average, as a smooth black line drawn on top
@@ -77,7 +77,7 @@ npm run dev        # serves http://localhost:5173
 - **Editable categories.** In the food **Show data table**, each row's category is a dropdown.
   - Adding a category to an uncategorized entry saves immediately.
   - Changing an existing category asks for confirmation first.
-  - Either way, the change rewrites `userdata/<name>-food.csv`.
+  - Either way, the change rewrites `testdata/<name>-food.csv`.
 
 ### Exercise
 - **Exercise log.** On one row:
@@ -141,7 +141,7 @@ The first screen has two tabs: **Log in** and **Create account**. There's no pas
   A profile with no weigh-ins yet needs no weight. If the profile exists and the weight fits, it opens and its data loads from its folder (the browser may ask to allow the folder again). If there's no profile with that name, the app offers **Create account**, with the name filled in. On a hosted site it also offers **Find it in a folder…**, for a profile saved from another browser: pick the folder that holds its files, and the weight is checked against them.
 - **Create account:** a username and, on a hosted site, the folder to save your data in. New profiles show weights in kg; switch with the **kg | lb** toggle. If the chosen folder already has files for that name, they're opened instead of starting over.
 - **Staying logged in:** a reload keeps you logged in; closing the tab or the browser logs you out. **Log out** in the header does it straight away.
-- **Where a profile "exists":** running locally, in `userdata/`. On a hosted site, in this browser, which remembers each profile's folder.
+- **Where a profile "exists":** running locally, in `testdata/`. On a hosted site, in this browser, which remembers each profile's folder.
 - **Light protection only.** The weight check stops someone opening a profile by just typing a name, but a range of weights is easy to guess for someone who knows you, and the CSV files in the folder aren't protected at all.
 
 ---
@@ -149,17 +149,17 @@ The first screen has two tabs: **Log in** and **Create account**. There's no pas
 ## How data is stored
 Data is always saved as CSV files in a data folder. The **Data & backup → Data folder** row in the app shows which one:
 
-1. **`userdata/`**, whenever the app runs through `npm run dev` or `npm run preview`.
+1. **`testdata/`**, whenever the app runs through `npm run dev` or `npm run preview`.
 2. **A folder you chose**, on a hosted site (Chrome, Edge, Brave or Arc on a computer).
 3. **Google Drive**, on a hosted site in any browser, once it's [set up](#saving-to-google-drive).
 
 The app doesn't let you log anything without a data folder. Browser storage (IndexedDB) keeps a copy as a cache only, and the folder's files are the source of truth.
 
-### `userdata/` folder (while running locally)
-A small save service built into the Vite dev server (`server/userdata-plugin.ts`) keeps every profile in `userdata/`:
+### `testdata/` folder (while running locally)
+A small save service built into the Vite dev server (`server/userdata-plugin.ts`) keeps every profile in `testdata/`:
 
 ```
-userdata/
+testdata/
   profiles.csv          # name,unit
   juju-weight.csv       # timestamp,weight_kg,weight_lb,entered_unit
   juju-food.csv         # timestamp,food,category
@@ -167,10 +167,10 @@ userdata/
   .migrated/            # originals kept from one-time file upgrades
 ```
 
-- **Logging in** looks for the username's files in `userdata/`, so a profile works from any browser on this computer.
+- **Logging in** looks for the username's files in `testdata/`, so a profile works from any browser on this computer.
 - **After logging in** the profile's latest data loads from the files, which win over the browser's copy.
 - **Every change** is written back immediately. Files are replaced atomically, so a crash can't leave half a file.
-- **Not in git.** `userdata/` is in `.gitignore`, so personal data is never committed.
+- **Not in git.** `testdata/` is in `.gitignore`, so personal data is never committed.
 - **Local only.** On GitHub Pages or a phone the save service doesn't exist. The app notices and runs on browser storage alone.
 
 Local HTTP API (dev and preview only):
@@ -183,7 +183,7 @@ Local HTTP API (dev and preview only):
 | `DELETE` | `/api/userdata/<slug>` | Removes that profile's CSV files |
 
 ### Saving to a folder on a hosted site
-On a hosted copy of the app there's no `userdata/` service. The browser saves to a folder you pick instead, using the File System Access API.
+On a hosted copy of the app there's no `testdata/` service. The browser saves to a folder you pick instead, using the File System Access API.
 
 | Browser | What happens |
 | --- | --- |
@@ -191,7 +191,7 @@ On a hosted copy of the app there's no `userdata/` service. The browser saves to
 | Safari, Firefox, any phone browser | A notice asks you to open the link in Chrome or Edge on a computer instead (Google Drive will cover these browsers, see below). |
 
 1. **Creating an account** includes a required **Where to save your data** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create account** stays blocked until a folder is chosen. The folder is remembered for that profile, so two people can use different folders in one browser.
-2. **Saving:** the app writes `profiles.csv` and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `userdata/`, so you can even pick the project's `userdata/` folder. Several profiles can share one folder.
+2. **Saving:** the app writes `profiles.csv` and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `testdata/`, so you can even pick the project's `testdata/` folder. Several profiles can share one folder.
 3. **Existing files:** if the folder already has files for that name, they are loaded and win over this browser's copy.
 4. **After a browser restart**, Chrome may need your OK again. The app shows a **Reconnect your data folder** screen until you click **Reconnect folder**, so nothing is logged without reaching the folder.
 5. **Data & backup → Change folder…** switches to another folder. There's no browser-only mode.
@@ -244,21 +244,21 @@ All files are UTF-8 with a header row, oldest row first. Fields containing comma
 
 **Timestamps.** A timestamp without an offset (e.g. `2026-10-11T07:15:00`) is local time. One with an offset (`Z`, `+02:00`) is that exact moment.
 
-**Weight:** `userdata/<name>-weight.csv` and **Export weight CSV**.
+**Weight:** `testdata/<name>-weight.csv` and **Export weight CSV**.
 ```
 timestamp,weight_kg,weight_lb,entered_unit
 2026-08-13T07:42:00,72.1,158.95,kg
 ```
 The unit it was typed in is exact; the other is converted (1 kg = 2.20462 lb, rounded to 0.01). **Import weight CSV** also accepts the older `timestamp,weight,unit` format. Rows at a time already in the profile are skipped, so importing the same file twice does nothing.
 
-**Food:** `userdata/<name>-food.csv` and **Export food CSV**.
+**Food:** `testdata/<name>-food.csv` and **Export food CSV**.
 ```
 timestamp,food,category
 2026-10-11T08:05:00,Oatmeal with berries,Grains & starches
 ```
 The category may be blank (uncategorized). Older two-column files still load. **Import food CSV** skips rows with the same time and food as an existing entry.
 
-**Exercise:** `userdata/<name>-exercise.csv` and **Export exercise CSV**.
+**Exercise:** `testdata/<name>-exercise.csv` and **Export exercise CSV**.
 ```
 timestamp,activity,category,minutes
 2026-10-11T06:54:00,Swim,Cardio,20
@@ -274,8 +274,8 @@ These are made-up data for trying the charts. The generators are seeded, so they
 | Command | Writes |
 | --- | --- |
 | `npm run sample-data` | `test/data/juju-60d.csv`: 60 days of weigh-ins (about 72 → 69.5 kg), ending today. Import it with **Import weight CSV** into a kg profile named **Juju**. |
-| `npm run sample-food` | 60 days of meals in `userdata/juju-food.csv`. Backs up the current file to `userdata/.migrated/` first and keeps existing rows. |
-| `npm run sample-exercise` | 60 days of workouts in `userdata/juju-exercise.csv`. Backs up an existing file first and keeps existing rows. |
+| `npm run sample-food` | 60 days of meals in `testdata/juju-food.csv`. Backs up the current file to `testdata/.migrated/` first and keeps existing rows. |
+| `npm run sample-exercise` | 60 days of workouts in `testdata/juju-exercise.csv`. Backs up an existing file first and keeps existing rows. |
 
 Pass a different profile slug to the food and exercise scripts with `node scripts/generate-exercise-data.mts <slug>`.
 
@@ -284,7 +284,7 @@ Pass a different profile slug to the food and exercise scripts with `node script
 ## Project structure
 ```
 index.html                 page markup: header, cards, dialogs
-vite.config.ts             Vite + PWA config, and the userdata/ save service
+vite.config.ts             Vite + PWA config, and the testdata/ save service
 src/
   main.ts                  wiring: login, forms, ranges, tabs, import/export
   accounts.ts              username check and the logged-in session
@@ -292,7 +292,7 @@ src/
   chart.ts                 weight line chart (SVG), axes and tick helpers
   bars.ts                  exercise minutes-per-day bar chart (SVG)
   pie.ts                   food breakdown pie (SVG)
-  stats.ts                 10-day average, 60-day frequency, chart series, day helpers
+  stats.ts                 10-day average, 30-day frequency, chart series, day helpers
   food.ts                  food categories and counts
   exercise.ts              exercise categories, summary, daily minutes
   units.ts                 kg/lb conversion and entries stored in both units
@@ -309,7 +309,7 @@ src/
   style.css                themes (light/dark) and layout
 server/
   userdata-plugin.ts       HTTP routes added to the dev/preview server
-  userdata-files.ts        the Node adapter for userdata/ and one-time file migrations
+  userdata-files.ts        the Node adapter for testdata/ and one-time file migrations
 scripts/                   sample data generators
 test/data/                 sample weight CSV
 ```
@@ -318,7 +318,7 @@ test/data/                 sample weight CSV
 
 ## Development
 ```sh
-npm run dev        # dev server with the userdata/ save service
+npm run dev        # dev server with the testdata/ save service
 npm test           # unit tests (Vitest)
 npm run build      # type-check and production build into dist/
 npm run preview    # serve the production build (save service included)
@@ -349,7 +349,7 @@ The site is then served at `https://<user>.github.io/banban-weight-tracking-prog
 
 > GitHub Pages on a **private** repo needs a paid plan (GitHub Pro / Team). Otherwise make the repo public, or use another static host such as Cloudflare Pages or Netlify, with `npm run build` as the build command and `dist` as the output folder.
 
-On a hosted site there is no `userdata/` folder. Each visitor saves to a folder on their own computer (Chrome/Edge) or to their own Google Drive. The CSV exports remain available as an extra backup.
+On a hosted site there is no `testdata/` folder. Each visitor saves to a folder on their own computer (Chrome/Edge) or to their own Google Drive. The CSV exports remain available as an extra backup.
 
 To try the hosted behaviour locally, serve the build from a plain static server under the same base path. For example, from an empty folder that contains a link named `banban-weight-tracking-program` pointing at `dist/`:
 ```sh
@@ -361,5 +361,5 @@ python3 -m http.server 8080
 
 ## Privacy
 - No analytics or tracking, and no data is sent anywhere. There's no account with us: a username only names a profile.
-- Locally, data lives only in `userdata/` (git-ignored) and the browser's IndexedDB.
+- Locally, data lives only in `testdata/` (git-ignored) and the browser's IndexedDB.
 - On a hosted site, data lives only in the folder the visitor chooses, or in their own Google Drive, plus a browser cache. The page sends data nowhere else.

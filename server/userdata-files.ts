@@ -1,8 +1,8 @@
 // Stores each profile as CSV files on this computer, keyed by the profile's name:
-//   userdata/profiles.csv          name,unit
-//   userdata/<slug>-weight.csv     timestamp,weight_kg,weight_lb,entered_unit
-//   userdata/<slug>-food.csv       timestamp,food,category
-//   userdata/<slug>-exercise.csv   timestamp,activity,category,minutes
+//   testdata/profiles.csv          name,unit
+//   testdata/<slug>-weight.csv     timestamp,weight_kg,weight_lb,entered_unit
+//   testdata/<slug>-food.csv       timestamp,food,category
+//   testdata/<slug>-exercise.csv   timestamp,activity,category,minutes
 // These files are the source of truth while the app runs locally: any browser that opens
 // a profile loads it from here (see userdata-plugin.ts for the HTTP routes).
 // The file layout itself lives in src/profile-files.ts, shared with the browser's folder picker;
@@ -54,7 +54,7 @@ export const removeProfile = (dir: string, slug: string): Promise<void> => files
 
 /**
  * One-time move from the old "<slug>-<id8>-weight.csv" naming to "<slug>-weight.csv".
- * Files with the same slug are merged (duplicate rows dropped); the originals go to userdata/.migrated/.
+ * Files with the same slug are merged (duplicate rows dropped); the originals go to testdata/.migrated/.
  * Runs once per folder: the .migrated/ directory marks it as done.
  */
 export async function migrate(dir: string): Promise<string[]> {
@@ -102,7 +102,7 @@ export async function migrate(dir: string): Promise<string[]> {
 /**
  * Rewrites weight files still in the older "timestamp,weight,unit" format into the current
  * "timestamp,weight_kg,weight_lb,entered_unit" format. Each original is copied to
- * userdata/.migrated/<name>.v1.csv first. Safe to run on every start: current files are left alone.
+ * testdata/.migrated/<name>.v1.csv first. Safe to run on every start: current files are left alone.
  */
 export async function upgradeWeightFiles(dir: string): Promise<string[]> {
   let files: string[];

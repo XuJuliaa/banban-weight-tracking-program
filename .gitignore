@@ -3,7 +3,7 @@ dist
 dev-dist
 .DS_Store
 # Personal data written by the local dev server
-userdata
+testdata
 # Local settings, e.g. VITE_GOOGLE_CLIENT_ID (see .env.example)
 .env.local
 .env.*.local

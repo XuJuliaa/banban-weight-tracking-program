@@ -11,7 +11,7 @@ import {
 } from './exercise';
 import { categoryCounts, categoryLabel, FOOD_CATEGORIES, UNCATEGORIZED } from './food';
 import { renderFoodPie } from './pie';
-import { dayKey, loggingFrequency60d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
+import { dayKey, loggingFrequency30d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
 import { profileSlug } from './names';
 import { profileFiles } from './profile-files';
 import type { UserData } from './types';
@@ -174,7 +174,7 @@ export function renderUser(user: UserData | null, now: number): void {
   dom.avgValue.textContent = avg === null ? '—' : `${formatWeight(avg)} ${user.unit}`;
   dom.avgNote.textContent = avg === null ? 'No entries in the last 10 days' : '';
 
-  const freq = loggingFrequency60d(points, now);
+  const freq = loggingFrequency30d(points, now);
   dom.freqValue.textContent = `${Math.round(freq.pct)}%`;
   dom.freqNote.textContent = `${freq.daysLogged} of the last ${freq.totalDays} days had an entry`;
   dom.freqMeter.style.width = `${freq.pct}%`;
@@ -287,7 +287,7 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
 }
 
 
-/** The "Data folder" row: where this profile's data is saved, which is userdata/ when running locally. */
+/** The "Data folder" row: where this profile's data is saved, which is testdata/ when running locally. */
 /** What the app can offer for saving: a folder (Chrome/Edge on a computer) and/or Google Drive (if set up). */
 const canFolder = () => folderSupported();
 // Google Drive comes back as a "Continue with Google" login; until then the folder is the only choice.
@@ -298,7 +298,7 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
   const account = driveAccount();
   const text: Record<UserdataStatus, string> = {
     unknown: 'Data folder: checking…',
-    connected: `Data folder: ${path ?? "the project's userdata/ folder"}. ${saving}`,
+    connected: `Data folder: ${path ?? "the project's testdata/ folder"}. ${saving}`,
     offline: "Data folder: can't reach the local save service, so changes are only saved in this browser for now. Is npm run dev still running?",
     folder: `Data folder: "${path}" (the folder you chose). ${saving}`,
     'folder-permission': `Data folder: "${path}". The browser needs your OK to use it again.`,
@@ -327,7 +327,7 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
   const showFiles = (status === 'connected' || status === 'folder' || status === 'drive') && user !== null;
   dom.folderFiles.hidden = !showFiles;
   if (showFiles) {
-    const dir = status === 'connected' ? 'userdata' : path;
+    const dir = status === 'connected' ? 'testdata' : path;
     dom.folderFiles.replaceChildren(
       ...profileFiles(profileSlug(user.name)).map((name) => {
         const li = document.createElement('li');
@@ -340,12 +340,12 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
   }
 }
 
-/** True when data can be saved to files: the local userdata/ folder, a chosen folder, or Google Drive. */
+/** True when data can be saved to files: the local testdata/ folder, a chosen folder, or Google Drive. */
 export const folderReady = (status: UserdataStatus) => status === 'connected' || status === 'folder' || status === 'drive';
 
 /**
  * The required "Where to save your data" field when creating an account: the folder picked so far
- * (`picked`), or the project's userdata/ folder when running locally.
+ * (`picked`), or the project's testdata/ folder when running locally.
  */
 export function renderSignupFolder(status: UserdataStatus, path: string | null, picked: string | null): void {
   const local = status === 'connected';
@@ -353,7 +353,7 @@ export function renderSignupFolder(status: UserdataStatus, path: string | null, 
   dom.signupFolderBtn.hidden = local || !canFolder();
   dom.signupFolderBtn.textContent = picked ? 'Change…' : 'Choose folder…';
   dom.signupFolderStatus.textContent =
-    local ? `Saved in the project's userdata/ folder (${path ?? 'userdata/'}).`
+    local ? `Saved in the project's testdata/ folder (${path ?? 'testdata/'}).`
     : picked ? `Saved in "${picked}".`
     : !canFolder() ? "This browser can't save to a folder. Open this page in Chrome or Edge on a computer."
     : 'Choose a folder on this computer for your CSV files, e.g. Documents/Weight Tracker.';
