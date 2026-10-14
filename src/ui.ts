@@ -14,12 +14,15 @@ import { renderFoodPie } from './pie';
 import {
   dayKey,
   daysInRange,
+  daysToUnlock,
   linearTrend,
+  type LoggingFrequency,
   loggingFrequency30d,
   movingAverage10d,
   movingAverageSeries,
   trendChange,
   trendSentence,
+  UNLOCK_PCT,
   weightSeries,
 } from './stats';
 import { profileSlug } from './names';
@@ -63,6 +66,8 @@ export const dom = {
   freqValue: el<HTMLSpanElement>('freq-value'),
   freqNote: el<HTMLSpanElement>('freq-note'),
   freqMeter: el<HTMLDivElement>('freq-meter'),
+  lockNote: el<HTMLParagraphElement>('lock-note'),
+  foodExerciseCards: el<HTMLDivElement>('food-exercise-cards'),
   foodForm: el<HTMLFormElement>('food-form'),
   foodInput: el<HTMLInputElement>('food-input'),
   foodCategory: el<HTMLSelectElement>('food-category'),
@@ -190,9 +195,35 @@ export function renderUser(user: UserData | null, now: number): void {
   dom.freqNote.textContent = `${freq.daysLogged} of the last ${freq.totalDays} days had an entry`;
   dom.freqMeter.style.width = `${freq.pct}%`;
   dom.freqMeter.parentElement?.setAttribute('aria-label', `${Math.round(freq.pct)}% of days logged`);
+  renderLock(freq);
 
   renderFoods(user, now);
   renderExercises(user, now);
+}
+
+/**
+ * Food and exercise stay greyed out and unusable (inert) until UNLOCK_PCT of the last 30 days have a
+ * weigh-in; the note above them says how far along the user is.
+ */
+function renderLock(freq: LoggingFrequency): void {
+  const missing = daysToUnlock(freq);
+  const locked = missing > 0;
+  dom.foodExerciseCards.inert = locked;
+  dom.foodExerciseCards.classList.toggle('is-locked', locked);
+  dom.lockNote.hidden = !locked;
+  if (!locked) return;
+  const bold = (text: string) => {
+    const strong = document.createElement('strong');
+    strong.textContent = text;
+    return strong;
+  };
+  dom.lockNote.replaceChildren(
+    `🔒 Food and exercise unlock when you've logged your weight on ${UNLOCK_PCT}% of the last ${freq.totalDays} days. You're at `,
+    bold(`${Math.round(freq.pct)}%`),
+    ` (${freq.daysLogged} of ${freq.totalDays} days). Log your weight on `,
+    bold(String(missing)),
+    ` more ${missing === 1 ? 'day' : 'days'} to unlock.`,
+  );
 }
 
 /** Most rows the weight and food data tables show; older entries are reached by narrowing the date range. */

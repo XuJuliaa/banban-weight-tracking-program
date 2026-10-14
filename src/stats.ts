@@ -66,6 +66,17 @@ export function loggingFrequency30d(entries: WeightPoint[], now: number): Loggin
   };
 }
 
+/** Food and exercise unlock once at least this share of the last 30 days has a weigh-in. */
+export const UNLOCK_PCT = 80;
+
+/**
+ * How many more logged days are needed to reach UNLOCK_PCT (24 of 30 days); 0 means unlocked.
+ * Counted in whole days so exactly 80% unlocks.
+ */
+export function daysToUnlock(freq: LoggingFrequency): number {
+  return Math.max(0, Math.ceil((freq.totalDays * UNLOCK_PCT) / 100) - freq.daysLogged);
+}
+
 export interface SeriesPoint {
   /** Epoch ms. */
   x: number;
