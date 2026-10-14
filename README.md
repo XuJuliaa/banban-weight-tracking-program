@@ -17,6 +17,7 @@ Built with Vite + TypeScript. There's no UI framework and no charting library: t
 - [Quick start](#quick-start)
 - [Features](#features)
 - [Using the app](#using-the-app)
+- [Logging in](#logging-in)
 - [How data is stored](#how-data-is-stored)
 - [CSV formats](#csv-formats)
 - [Sample data](#sample-data)
@@ -93,7 +94,7 @@ npm run dev        # serves http://localhost:5173
   Tabs can be switched with the arrow keys, and the selected tab is remembered in this browser.
 
 ### Everything else
-- **Several profiles per device.** A profile *is its name*: "Juju" and "juju" are the same profile, and creating an existing name opens it instead of making a duplicate.
+- **Log in with a username and password.** Each account has its own profile and data folder. Usernames ignore case and punctuation, so "Juju" and "juju" are the same account. See [Logging in](#logging-in).
 - **Color themes.** Five swatches next to the title:
   - Warm coral (default)
   - Ocean blue
@@ -102,7 +103,7 @@ npm run dev        # serves http://localhost:5173
   - Graphite (black on tinted gray)
 
   Each has a matching dark mode that follows the system setting. Chart category colors come from a palette checked for color-blind separation and contrast.
-- **Required data folder on a hosted site.** Creating a profile includes choosing where its CSV files are saved: a [folder on your computer](#saving-to-a-folder-on-a-hosted-site) or [Google Drive](#saving-to-google-drive).
+- **Required data folder on a hosted site.** Creating an account includes choosing the [folder on your computer](#saving-to-a-folder-on-a-hosted-site) where its CSV files are saved.
 - **Backup and restore.** Export the weight, food and exercise logs as CSV, and import any of them back.
 - **Works offline and installs like an app** (PWA). On a phone, use *Add to Home Screen*.
 
@@ -123,8 +124,19 @@ npm run dev        # serves http://localhost:5173
 | See daily cardio minutes | **Exercise** card → **Cardio** tab |
 | Back up my data | **Data & backup** → Export weight / food / exercise CSV |
 | Restore a backup | **Data & backup** → Import weight / food / exercise CSV |
-| Pick the data folder (hosted site) | When creating a profile; later **Data & backup** → **Change folder…** / **Use Google Drive instead** |
+| Pick the data folder (hosted site) | When creating an account; later **Data & backup** → **Change folder…** |
+| Switch person | **Log out** in the header, then log in as someone else |
 | Change colors | The swatches next to the title |
+
+---
+
+## Logging in
+The first screen has two tabs: **Log in** and **Create account**.
+
+- **Create account:** a username, a password (at least 8 characters, typed twice) and, on a hosted site, the folder to save your data in. New accounts show weights in kg; switch with the **kg | lb** toggle. If the folder already has data files for that name (from before logins existed), the account takes them over.
+- **Log in:** in a browser you've logged in from before, the app remembers your folder and loads your data from it. The browser may ask to allow the folder again. In a new browser, the app asks you to pick your data folder, then checks the password against the account file in it.
+- **Staying logged in:** a reload keeps you logged in; closing the tab or the browser logs you out. **Log out** in the header does it straight away.
+- **What the password protects.** There's no server: the password is checked on this device against a salted hash (PBKDF2-SHA256, 210,000 rounds), kept in the browser and as `<name>-account.csv` in the data folder. The password itself is never stored. It keeps other people using the same computer out of your profile, but the CSV files aren't encrypted: anyone who can open the folder can read them. There's no password reset; if you forget it, delete `<name>-account.csv` from the folder and create the account again (your data files are kept).
 
 ---
 
@@ -146,11 +158,12 @@ userdata/
   juju-weight.csv       # timestamp,weight_kg,weight_lb,entered_unit
   juju-food.csv         # timestamp,food,category
   juju-exercise.csv     # timestamp,activity,category,minutes
+  juju-account.csv      # username,salt,hash,iterations (the login)
   .migrated/            # originals kept from one-time file upgrades
 ```
 
-- **On startup** the app lists the profiles in `userdata/`. Profiles it doesn't have yet are added to the browser; profiles that exist only in the browser are written out.
-- **Selecting a profile** loads its latest data from the files, which win over the browser's copy.
+- **Logging in** checks the password against `userdata/<name>-account.csv`, so an account works from any browser on this computer.
+- **After logging in** the profile's latest data loads from the files, which win over the browser's copy.
 - **Every change** is written back immediately. Files are replaced atomically, so a crash can't leave half a file.
 - **Not in git.** `userdata/` is in `.gitignore`, so personal data is never committed.
 - **Local only.** On GitHub Pages or a phone the save service doesn't exist. The app notices and runs on browser storage alone.
@@ -163,24 +176,28 @@ Local HTTP API (dev and preview only):
 | `GET` | `/api/userdata/<slug>` | `{ slug, name, unit, entries, foods, exercises }` or `null` |
 | `PUT` | `/api/userdata/<slug>` | Validates the user record and rewrites that profile's CSV files |
 | `DELETE` | `/api/userdata/<slug>` | Removes that profile's CSV files |
+| `GET` | `/api/userdata/<slug>/account` | `{ text }`: the account file, or `null` |
+| `PUT` | `/api/userdata/<slug>/account` | Validates and writes `<slug>-account.csv` |
 
 ### Saving to a folder on a hosted site
 On a hosted copy of the app there's no `userdata/` service. The browser saves to a folder you pick instead, using the File System Access API.
 
 | Browser | What happens |
 | --- | --- |
-| Chrome, Edge, Brave, Arc on a computer | Choose a folder, or Google Drive |
-| Safari, Firefox, any phone browser | Google Drive. If Drive isn't set up for the site, a notice asks you to open the link in Chrome or Edge on a computer instead. |
+| Chrome, Edge, Brave, Arc on a computer | Choose a folder |
+| Safari, Firefox, any phone browser | A notice asks you to open the link in Chrome or Edge on a computer instead (Google Drive will cover these browsers, see below). |
 
-1. **Creating a profile** includes a required **Data folder** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create** stays blocked until a folder is chosen.
-2. **Saving:** the app writes `profiles.csv` and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `userdata/`, so you can even pick the project's `userdata/` folder.
-3. **Existing files:** if the folder already has files for a profile with the same name, they are loaded and win over this browser's copy. Profiles only in this browser are written to the folder.
+1. **Creating an account** includes a required **Where to save your data** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create account** stays blocked until a folder is chosen. The folder is remembered for that account, so two people can use different folders in one browser.
+2. **Saving:** the app writes `profiles.csv`, `<name>-account.csv`, and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `userdata/`, so you can even pick the project's `userdata/` folder. Several accounts can share one folder.
+3. **Existing files:** if the folder already has files for that name, they are loaded and win over this browser's copy.
 4. **After a browser restart**, Chrome may need your OK again. The app shows a **Reconnect your data folder** screen until you click **Reconnect folder**, so nothing is logged without reaching the folder.
-5. **Data & backup → Change folder…** switches to another folder, and **Use Google Drive instead** switches to Drive. There's no browser-only mode.
+5. **Data & backup → Change folder…** switches to another folder. There's no browser-only mode.
 
 Browsers only reveal the folder's name to the page, not its full path.
 
 ### Saving to Google Drive
+> **Not offered right now.** With username and password logins, Drive saving is being reworked into a **Continue with Google** login (one profile per Google account, saved in that person's Drive). The code and setup below stay as they are for that.
+
 **Use Google Drive** signs in with Google and keeps the same CSV files in a **Weight Tracker** folder in your own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
 
 - **Narrow permission.** The app asks only for `drive.file`, so it can see the files it created and nothing else in your Drive.
@@ -266,7 +283,8 @@ Pass a different profile slug to the food and exercise scripts with `node script
 index.html                 page markup: header, cards, dialogs
 vite.config.ts             Vite + PWA config, and the userdata/ save service
 src/
-  main.ts                  wiring: profile selection, forms, ranges, tabs, import/export
+  main.ts                  wiring: login, forms, ranges, tabs, import/export
+  accounts.ts              username + password logins (password hashing, session)
   ui.ts                    rendering: stats, tables, today lists, food and exercise cards
   chart.ts                 weight line chart (SVG), axes and tick helpers
   bars.ts                  exercise minutes-per-day bar chart (SVG)
@@ -339,6 +357,6 @@ python3 -m http.server 8080
 ---
 
 ## Privacy
-- No account, analytics or tracking, and no data is sent anywhere.
+- No analytics or tracking, and no data is sent anywhere. Logins are checked on the device; there's no account with us.
 - Locally, data lives only in `userdata/` (git-ignored) and the browser's IndexedDB.
 - On a hosted site, data lives only in the folder the visitor chooses, or in their own Google Drive, plus a browser cache. The page sends data nowhere else.

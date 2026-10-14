@@ -3,6 +3,8 @@
 //   GET    <base>api/userdata/<slug>   → { slug, name, unit, entries, foods, exercises } or null
 //   PUT    <base>api/userdata/<slug>   body: the user's JSON record → rewrites their CSV files
 //   DELETE <base>api/userdata/<slug>   removes their CSV files
+//   GET    <base>api/userdata/<slug>/account   → { text } (<slug>-account.csv, or null)
+//   PUT    <base>api/userdata/<slug>/account   body: the account CSV → writes <slug>-account.csv
 // On a static host such as GitHub Pages this API doesn't exist; the app notices and stops calling it.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -10,15 +12,17 @@ import type { Plugin } from 'vite';
 import {
   listProfiles,
   migrate,
+  readAccount,
   readProfile,
   removeProfile,
   upgradeWeightFiles,
   VALID_SLUG,
   validateUser,
+  writeAccount,
   writeProfile,
 } from './userdata-files.ts';
 
-const ROUTE = /\/api\/userdata(?:\/([^/?#]+))?\/?$/;
+const ROUTE = /\/api\/userdata(?:\/([^/?#]+)(\/account)?)?\/?$/;
 const MAX_BODY = 5 * 1024 * 1024;
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -72,6 +76,15 @@ export function userdataPlugin(dir: string): Plugin {
         return send(res, 405, 'Method not allowed');
       }
       if (!VALID_SLUG.test(slug)) return send(res, 400, 'Invalid profile name');
+      if (match[2]) {
+        if (req.method === 'GET') return send(res, 200, { text: await readAccount(dir, slug) });
+        if (req.method === 'PUT') {
+          await writeAccount(dir, slug, await readBody(req));
+          return send(res, 204);
+        }
+        res.setHeader('Allow', 'GET, PUT');
+        return send(res, 405, 'Method not allowed');
+      }
       if (req.method === 'GET') return send(res, 200, await readProfile(dir, slug));
       if (req.method === 'PUT') {
         await writeProfile(dir, validateUser(JSON.parse(await readBody(req)), slug));

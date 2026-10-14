@@ -14,9 +14,8 @@ import { renderFoodPie } from './pie';
 import { dayKey, loggingFrequency60d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
 import { profileSlug } from './names';
 import { profileFiles } from './profile-files';
-import type { ProfileSummary, UserData } from './types';
+import type { UserData } from './types';
 import { pointsIn } from './units';
-import { driveConfigured } from './drive-store';
 import { folderSupported } from './folder-store';
 import { driveAccount, type UserdataStatus } from './userdata-api';
 
@@ -28,12 +27,17 @@ function el<T extends HTMLElement>(id: string): T {
 
 export const dom = {
   profileControls: el<HTMLDivElement>('profile-controls'),
-  profileSelect: el<HTMLSelectElement>('profile-select'),
-  newProfileBtn: el<HTMLButtonElement>('new-profile-btn'),
+  accountName: el<HTMLElement>('account-name'),
+  logoutBtn: el<HTMLButtonElement>('logout-btn'),
   unitToggle: el<HTMLDivElement>('unit-toggle'),
   unitButtons: [...document.querySelectorAll<HTMLButtonElement>('#unit-toggle button[data-unit]')],
-  onboarding: el<HTMLElement>('onboarding'),
-  onboardingForm: el<HTMLFormElement>('onboarding-form'),
+  login: el<HTMLElement>('login'),
+  loginTabs: [...document.querySelectorAll<HTMLButtonElement>('#login [role="tab"]')],
+  loginForm: el<HTMLFormElement>('login-form'),
+  signupForm: el<HTMLFormElement>('signup-form'),
+  signupFolder: el<HTMLDivElement>('signup-folder'),
+  signupFolderStatus: el<HTMLParagraphElement>('signup-folder-status'),
+  signupFolderBtn: el<HTMLButtonElement>('signup-folder-btn'),
   tracker: el<HTMLDivElement>('tracker'),
   entryForm: el<HTMLFormElement>('entry-form'),
   weightInput: el<HTMLInputElement>('weight-input'),
@@ -84,7 +88,6 @@ export const dom = {
   chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
   reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
   changeFolderBtn: el<HTMLButtonElement>('change-folder-btn'),
-  folderFields: [...document.querySelectorAll<HTMLElement>('[data-folder-field]')],
   folderGate: el<HTMLElement>('folder-gate'),
   folderGateTitle: el<HTMLHeadingElement>('folder-gate-title'),
   folderGateText: el<HTMLParagraphElement>('folder-gate-text'),
@@ -101,9 +104,6 @@ export const dom = {
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
   confirmOk: el<HTMLButtonElement>('confirm-ok'),
-  newProfileDialog: el<HTMLDialogElement>('new-profile-dialog'),
-  newProfileForm: el<HTMLFormElement>('new-profile-form'),
-  newProfileCancel: el<HTMLButtonElement>('new-profile-cancel'),
   toast: el<HTMLParagraphElement>('toast'),
   rangeStart: el<HTMLInputElement>('range-start'),
   rangeEnd: el<HTMLInputElement>('range-end'),
@@ -127,19 +127,35 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
 
 const formatWeight = (w: number) => w.toFixed(1);
 
-export function renderProfiles(profiles: ProfileSummary[], currentId: string | null): void {
-  dom.profileControls.hidden = profiles.length === 0;
-  dom.profileSelect.replaceChildren(
-    ...profiles.map((p) => {
-      const option = new Option(p.name, p.userId);
-      option.selected = p.userId === currentId;
-      return option;
-    }),
-  );
+/** The top bar: who is logged in, with Log out. Hidden on the login page. */
+export function renderAccount(name: string | null): void {
+  dom.profileControls.hidden = name === null;
+  dom.accountName.textContent = name ?? '';
+}
+
+export type LoginMode = 'login' | 'signup';
+
+/** The login page's two tabs: Log in and Create account. */
+export function renderLogin(mode: LoginMode, focus = false): void {
+  for (const tab of dom.loginTabs) {
+    const selected = tab.dataset.mode === mode;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+  dom.loginForm.hidden = mode !== 'login';
+  dom.signupForm.hidden = mode !== 'signup';
+}
+
+/** Shows (or with null, clears) the error line under a login form's fields. */
+export function showFormError(form: HTMLFormElement, message: string | null): void {
+  const line = form.querySelector<HTMLElement>('[data-form-error]')!;
+  line.textContent = message ?? '';
+  line.hidden = message === null;
 }
 
 export function renderUser(user: UserData | null, now: number): void {
-  dom.onboarding.hidden = user !== null;
+  dom.login.hidden = user !== null;
   dom.tracker.hidden = user === null;
   if (!user) return;
 
@@ -268,7 +284,8 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
 /** The "Data folder" row: where this profile's data is saved, which is userdata/ when running locally. */
 /** What the app can offer for saving: a folder (Chrome/Edge on a computer) and/or Google Drive (if set up). */
 const canFolder = () => folderSupported();
-const canDrive = () => driveConfigured();
+// Google Drive comes back as a "Continue with Google" login; until then the folder is the only choice.
+const canDrive = () => false;
 
 export function renderFolder(status: UserdataStatus, path: string | null, user: UserData | null): void {
   const saving = user ? `${user.name}'s data is saved to these files after every change:` : '';
@@ -320,36 +337,28 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
 /** True when data can be saved to files: the local userdata/ folder, a chosen folder, or Google Drive. */
 export const folderReady = (status: UserdataStatus) => status === 'connected' || status === 'folder' || status === 'drive';
 
-/** The required "Where to save your data" field in the create-profile forms. */
-export function renderFolderFields(status: UserdataStatus, path: string | null): void {
-  const account = driveAccount();
-  for (const field of dom.folderFields) {
-    const text = field.querySelector<HTMLElement>('[data-folder-status]')!;
-    const folderBtn = field.querySelector<HTMLButtonElement>('[data-folder-action]')!;
-    const driveBtn = field.querySelector<HTMLButtonElement>('[data-drive-action]')!;
-    field.classList.toggle('ready', folderReady(status));
-    folderBtn.hidden = status === 'connected' || !canFolder();
-    driveBtn.hidden = status === 'connected' || status === 'drive' || !canDrive();
-    folderBtn.textContent = status === 'folder-permission' ? 'Reconnect folder' : status === 'folder' ? 'Change…' : status === 'unavailable' ? 'Choose folder…' : 'Use a folder';
-    driveBtn.textContent = status === 'drive-signin' ? 'Sign in to Google' : status === 'unavailable' ? 'Use Google Drive' : 'Use Google Drive instead';
-    text.textContent =
-      status === 'connected' ? `Saved in the project's userdata/ folder (${path ?? 'userdata/'}).`
-      : status === 'folder' ? `Saved in "${path}".`
-      : status === 'folder-permission' ? `"${path}" needs your OK again.`
-      : status === 'drive' ? `Saved in ${path}${account ? ` (${account})` : ''}.`
-      : status === 'drive-signin' ? `Saved in ${path}. Sign in to Google to continue.`
-      : canFolder() && canDrive() ? 'Choose a folder on this computer, or your Google Drive, for your CSV files.'
-      : canDrive() ? 'Your CSV files are kept in a "Weight Tracker" folder in your Google Drive.'
-      : 'Choose a folder on this computer for your CSV files, e.g. Documents/Weight Tracker.';
-  }
+/**
+ * The required "Where to save your data" field when creating an account: the folder picked so far
+ * (`picked`), or the project's userdata/ folder when running locally.
+ */
+export function renderSignupFolder(status: UserdataStatus, path: string | null, picked: string | null): void {
+  const local = status === 'connected';
+  dom.signupFolder.classList.toggle('ready', local || picked !== null);
+  dom.signupFolderBtn.hidden = local || !canFolder();
+  dom.signupFolderBtn.textContent = picked ? 'Change…' : 'Choose folder…';
+  dom.signupFolderStatus.textContent =
+    local ? `Saved in the project's userdata/ folder (${path ?? 'userdata/'}).`
+    : picked ? `Saved in "${picked}".`
+    : !canFolder() ? "This browser can't save to a folder. Open this page in Chrome or Edge on a computer."
+    : 'Choose a folder on this computer for your CSV files, e.g. Documents/Weight Tracker.';
 }
 
 /**
- * The full-page notice shown instead of the app when data can't be saved yet: the chosen folder or Google
- * Drive needs reconnecting, profiles exist but nothing is chosen, or this browser has nothing to offer.
+ * The full-page notice shown instead of the app when data can't be saved yet: the logged-in account's folder
+ * or Google Drive needs reconnecting or isn't chosen, or this browser has nothing to offer.
  * Returns true when it's shown (the caller then hides everything else).
  */
-export function renderGate(status: UserdataStatus, path: string | null, hasProfiles: boolean): boolean {
+export function renderGate(status: UserdataStatus, path: string | null, loggedIn: boolean): boolean {
   let gate: { title: string; text: string; folder?: string; drive?: string } | null = null;
   if (status === 'unsupported') {
     gate = {
@@ -358,6 +367,8 @@ export function renderGate(status: UserdataStatus, path: string | null, hasProfi
         'This app saves your data as CSV files in a folder on your computer, so it isn\'t lost if the browser clears its storage. ' +
         'This browser can\'t save to a folder. Open the same link in Chrome, Edge, Brave or Arc on a Mac or PC.',
     };
+  } else if (!loggedIn) {
+    // Before logging in, the login page itself asks for the folder.
   } else if (status === 'folder-permission') {
     gate = {
       title: 'Reconnect your data folder',
@@ -371,10 +382,10 @@ export function renderGate(status: UserdataStatus, path: string | null, hasProfi
       text: `Your data is saved in ${path}${account ? ` (${account})` : ''}. Sign in to continue: Google asks again on each visit and after an hour.`,
       drive: 'Sign in to Google',
     };
-  } else if (status === 'unavailable' && hasProfiles) {
+  } else if (status === 'unavailable') {
     gate = {
       title: 'Choose where to save your data',
-      text: 'Pick a folder on this computer or your Google Drive. Profiles already saved there are loaded from it.',
+      text: 'Pick the folder on this computer where your data is kept. Your files already in it are loaded from it.',
       folder: canFolder() ? 'Choose folder…' : undefined,
       drive: canDrive() ? 'Use Google Drive' : undefined,
     };

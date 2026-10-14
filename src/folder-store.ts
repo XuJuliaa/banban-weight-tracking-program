@@ -1,7 +1,7 @@
 // A folder the user picks on their computer, used as the data folder when there's no local save
 // service (e.g. on a hosted site). Uses the File System Access API: Chrome, Edge and other
-// Chromium browsers on desktop only. The folder is remembered in IndexedDB between visits; the
-// browser may ask for permission again, which needs a click.
+// Chromium browsers on desktop only. Each login's folder is remembered in IndexedDB between visits;
+// the browser may ask for permission again, which needs a click.
 
 import { del, get, set } from 'idb-keyval';
 import type { TextStore } from './profile-files';
@@ -24,34 +24,34 @@ declare global {
   }
 }
 
-const FOLDER_KEY = 'dataFolder';
+const folderKey = (account: string) => `folder:${account}`;
 const READ_WRITE: PermissionDescriptor = { mode: 'readwrite' };
 
 export const folderSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
-/** Asks the user to pick a folder (must be called from a click) and remembers it. Null if they cancel. */
+/** Asks the user to pick a folder (must be called from a click). Null if they cancel. */
 export async function pickFolder(): Promise<FileSystemDirectoryHandle | null> {
-  let handle: FileSystemDirectoryHandle;
   try {
-    handle = await window.showDirectoryPicker({ id: 'weight-tracker', mode: 'readwrite' });
+    return await window.showDirectoryPicker({ id: 'weight-tracker', mode: 'readwrite' });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return null;
     throw err;
   }
-  await set(FOLDER_KEY, handle);
-  return handle;
 }
 
-export async function rememberedFolder(): Promise<FileSystemDirectoryHandle | null> {
+/** Remembers `handle` as this account's data folder. */
+export const rememberFolder = (account: string, handle: FileSystemDirectoryHandle) => set(folderKey(account), handle);
+
+export async function rememberedFolder(account: string): Promise<FileSystemDirectoryHandle | null> {
   try {
-    return (await get<FileSystemDirectoryHandle>(FOLDER_KEY)) ?? null;
+    return (await get<FileSystemDirectoryHandle>(folderKey(account))) ?? null;
   } catch {
     return null;
   }
 }
 
-/** Forgets the folder (e.g. when switching to Google Drive). Its files are left untouched. */
-export const forgetFolder = () => del(FOLDER_KEY);
+/** Forgets the account's folder (e.g. when switching to Google Drive). Its files are left untouched. */
+export const forgetFolder = (account: string) => del(folderKey(account));
 
 /** Whether the page may read and write the folder. With `ask`, shows the browser's prompt (needs a click). */
 export async function hasPermission(handle: FileSystemDirectoryHandle, ask: boolean): Promise<boolean> {

@@ -1,25 +1,35 @@
 import './style.css';
 import {
-  createProfile,
-  listProfiles,
-  loadUser,
-  requestPersistentStorage,
-  saveUser,
-  loadUserFromFiles,
-  syncProfileListFromFiles,
-  setSyncErrorHandler,
-} from './storage';
+  createAccount,
+  currentSession,
+  endSession,
+  findAccount,
+  PASSWORD_MIN,
+  saveAccount,
+  startSession,
+  usernameProblem,
+  verifyPassword,
+} from './accounts';
+import { createProfile, loadUser, requestPersistentStorage, saveUser, loadUserFromFiles, setSyncErrorHandler } from './storage';
 import { mergeNew, parseExerciseCsv, parseFoodCsv, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
 import {
   chooseFolder,
+  closeAccount,
+  localService,
   onUserdataStatusChange,
+  openAccount,
+  pickAccountFolder,
+  readAccountText,
   signOutDrive,
   useGoogleDrive,
   reconnectFolder,
   userdataPath,
   userdataStatus,
+  writeAccountText,
 } from './userdata-api';
-import type { ProfileSummary, UserData, WeightUnit } from './types';
+import { profileSlug } from './names';
+import { type AccountRecord, accountCsv, parseAccountCsv } from './profile-files';
+import type { UserData } from './types';
 import { dayKey, startOfDay } from './stats';
 import { overrideDay } from './edits';
 import { initThemePicker } from './theme';
@@ -29,43 +39,29 @@ import {
   dom,
   formatEntry,
   renderChart,
+  renderAccount,
   renderFolder,
-  renderFolderFields,
   renderGate,
-  folderReady,
+  renderLogin,
   renderOverride,
   renderExerciseBreakdown,
   renderFoodBreakdown,
-  renderProfiles,
+  renderSignupFolder,
   renderUser,
+  showFormError,
   showToast,
+  type LoginMode,
   EXERCISE_TABS,
   type ExerciseTab,
 } from './ui';
 import { categoryFromText, categoryLabel } from './food';
 import { exerciseCategoryFromText, validMinutes } from './exercise';
 
-const LAST_PROFILE_KEY = 'lastProfileId';
-
-let profiles: ProfileSummary[] = [];
+/** The logged-in account and its profile; both null on the login page. */
+let account: AccountRecord | null = null;
 let current: UserData | null = null;
-
-function rememberProfile(userId: string | null): void {
-  try {
-    if (userId) localStorage.setItem(LAST_PROFILE_KEY, userId);
-    else localStorage.removeItem(LAST_PROFILE_KEY);
-  } catch {
-    // Storage can be unavailable (e.g. private mode); this is only a convenience.
-  }
-}
-
-function recalledProfile(): string | null {
-  try {
-    return localStorage.getItem(LAST_PROFILE_KEY);
-  } catch {
-    return null;
-  }
-}
+/** The folder picked in the Create account form, before the account exists. */
+let signupFolder: FileSystemDirectoryHandle | null = null;
 
 /** Reads a date input ("YYYY-MM-DD") as local midnight. */
 function readDateInput(input: HTMLInputElement): number | null {
@@ -112,15 +108,14 @@ function drawChart(): void {
 }
 
 function render(): void {
-  renderProfiles(profiles, current?.userId ?? null);
+  renderAccount(current?.name ?? null);
   renderUser(current, Date.now());
   renderFolder(userdataStatus(), userdataPath(), current);
-  renderFolderFields(userdataStatus(), userdataPath());
-  // Saving to a folder is required: without one, show what to do instead of the app.
-  if (renderGate(userdataStatus(), userdataPath(), profiles.length > 0)) {
-    dom.onboarding.hidden = true;
+  renderSignupFolder(userdataStatus(), userdataPath(), signupFolder?.name ?? null);
+  // Saving to a folder is required: without one, show what to do instead of the app (Log out stays).
+  if (renderGate(userdataStatus(), userdataPath(), current !== null)) {
+    dom.login.hidden = true;
     dom.tracker.hidden = true;
-    dom.profileControls.hidden = true;
   }
   if (current) renderOverride(current, readDateInput(dom.overrideDate));
   drawChart();
@@ -138,7 +133,6 @@ async function selectProfile(userId: string | null): Promise<void> {
   // The exercise card opens on the past week.
   setExerciseRange(daysAgo(6), Date.now());
   dom.overrideDate.value = dayKey(Date.now());
-  rememberProfile(current?.userId ?? null);
   render();
 }
 
@@ -148,52 +142,155 @@ async function reloadCurrent(): Promise<void> {
   render();
 }
 
-async function refreshProfiles(selectId?: string | null): Promise<void> {
-  profiles = await listProfiles();
-  const wanted = selectId ?? current?.userId ?? recalledProfile();
-  const found = profiles.find((p) => p.userId === wanted) ?? profiles[0];
-  await selectProfile(found?.userId ?? null);
-}
+// --- Login: username + password, checked on this device (see accounts.ts). Each account has its own data folder.
 
-function readProfileForm(form: HTMLFormElement): { name: string; unit: WeightUnit } | null {
+const WRONG_LOGIN = 'Wrong username or password';
+
+const parseAccount = (text: string | null, slug: string) => (text ? parseAccountCsv(text, slug) : null);
+
+function readLoginForm(form: HTMLFormElement): { name: string; password: string; confirm: string } {
   const data = new FormData(form);
-  const name = String(data.get('name') ?? '').trim();
-  const unit = data.get('unit') === 'lb' ? 'lb' : 'kg';
-  return name ? { name, unit } : null;
+  return {
+    name: String(data.get('username') ?? '').trim(),
+    password: String(data.get('password') ?? ''),
+    confirm: String(data.get('confirm') ?? ''),
+  };
 }
 
-/** Profiles can only be created once their data has a folder to go to. */
-function folderChosen(form: HTMLFormElement): boolean {
-  if (folderReady(userdataStatus())) return true;
-  showToast('Choose a data folder first');
-  form.querySelector<HTMLButtonElement>('[data-folder-action]')?.focus();
-  return false;
+/**
+ * Opens a logged-in account: its folder (`handle` if one was just picked, else the one remembered), then
+ * its profile, loaded from that folder or created there. Returns true if the profile already had data.
+ */
+async function enter(found: AccountRecord, handle: FileSystemDirectoryHandle | null, ask: boolean): Promise<boolean> {
+  await openAccount(found.slug, handle, ask);
+  account = found;
+  startSession(found.slug);
+  const { user, existed } = await createProfile(found.name, 'kg');
+  await selectProfile(user.userId);
+  return existed;
 }
 
-async function addProfile(form: HTMLFormElement): Promise<void> {
-  const values = readProfileForm(form);
-  if (!values || !folderChosen(form)) return;
-  const { user, existed } = await createProfile(values.name, values.unit);
+async function logIn(form: HTMLFormElement): Promise<void> {
+  const { name, password } = readLoginForm(form);
+  const slug = profileSlug(name);
+  // Running locally, userdata/ always holds the account; on a hosted site, this browser remembers it.
+  const local = await localService();
+  let found = local ? parseAccount(await readAccountText(slug), slug) : await findAccount(slug);
+  let handle: FileSystemDirectoryHandle | null = null;
+  if (!found && !local) {
+    // First login in this browser: the account file is in the account's data folder.
+    const ok = await confirmChange({
+      title: 'Choose your data folder',
+      message: `This browser hasn't been used to log in as "${name}" yet. Choose the folder where your data is saved, and your password is checked against the account file in it.`,
+      confirmLabel: 'Choose folder…',
+    });
+    if (!ok) return;
+    handle = await pickAccountFolder();
+    if (!handle) return;
+    found = parseAccount(await readAccountText(slug, handle), slug);
+  }
+  if (!found || !(await verifyPassword(found, password))) {
+    showFormError(form, WRONG_LOGIN);
+    return;
+  }
+  await saveAccount(found);
   form.reset();
-  await refreshProfiles(user.userId);
-  showToast(existed ? `"${user.name}" already exists — opened it` : `Profile "${user.name}" created`);
+  await enter(found, handle, true);
+  showToast(`Welcome back, ${found.name}`);
 }
 
-dom.onboardingForm.addEventListener('submit', (event) => {
+async function signUp(form: HTMLFormElement): Promise<void> {
+  const { name, password, confirm } = readLoginForm(form);
+  const problem =
+    usernameProblem(name) ??
+    (password.length < PASSWORD_MIN ? `Use at least ${PASSWORD_MIN} characters for the password`
+    : password !== confirm ? "The passwords don't match"
+    : null);
+  if (problem) {
+    showFormError(form, problem);
+    return;
+  }
+  const slug = profileSlug(name);
+  const local = await localService();
+  if (!local && !signupFolder) {
+    showFormError(form, 'Choose a folder to save your data in');
+    dom.signupFolderBtn.focus();
+    return;
+  }
+  const taken = (!local && (await findAccount(slug))) || (await readAccountText(slug, signupFolder));
+  if (taken) {
+    showFormError(form, `"${name}" already has an account. Log in instead.`);
+    return;
+  }
+  const created = await createAccount(name, password);
+  await writeAccountText(slug, accountCsv(created), signupFolder);
+  await saveAccount(created);
+  const handle = signupFolder;
+  signupFolder = null;
+  form.reset();
+  const existed = await enter(created, handle, true);
+  showToast(existed ? `Account created. Loaded ${created.name}'s saved data` : `Welcome, ${created.name}`);
+}
+
+/** Runs a login form's action with its button disabled, showing any failure under the form. */
+async function submitLogin(form: HTMLFormElement, action: (form: HTMLFormElement) => Promise<void>): Promise<void> {
+  const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  if (button.disabled) return;
+  button.disabled = true;
+  showFormError(form, null);
+  try {
+    await action(form);
+  } catch (err) {
+    console.error(err);
+    showFormError(form, err instanceof Error ? err.message : 'Something went wrong. Try again.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+dom.loginForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  void addProfile(dom.onboardingForm);
+  void submitLogin(dom.loginForm, logIn);
+});
+dom.signupForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  void submitLogin(dom.signupForm, signUp);
 });
 
-dom.newProfileBtn.addEventListener('click', () => dom.newProfileDialog.showModal());
-dom.newProfileCancel.addEventListener('click', () => dom.newProfileDialog.close());
-dom.newProfileForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  if (!folderChosen(dom.newProfileForm)) return;
-  dom.newProfileDialog.close();
-  void addProfile(dom.newProfileForm);
+dom.signupFolderBtn.addEventListener('click', async () => {
+  try {
+    signupFolder = (await pickAccountFolder()) ?? signupFolder;
+    showFormError(dom.signupForm, null);
+    render();
+  } catch (err) {
+    console.error(err);
+    showToast("Couldn't open that folder");
+  }
 });
 
-dom.profileSelect.addEventListener('change', () => void selectProfile(dom.profileSelect.value));
+function selectLoginMode(mode: LoginMode, focus = false): void {
+  renderLogin(mode, focus);
+  showFormError(dom.loginForm, null);
+  showFormError(dom.signupForm, null);
+}
+
+for (const tab of dom.loginTabs) tab.addEventListener('click', () => selectLoginMode(tab.dataset.mode as LoginMode));
+// Left/right arrows switch tabs, as in a standard tab list.
+dom.loginTabs[0].parentElement!.addEventListener('keydown', (event) => {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  selectLoginMode(dom.signupForm.hidden ? 'signup' : 'login', true);
+});
+
+dom.logoutBtn.addEventListener('click', () => {
+  endSession();
+  account = null;
+  current = null;
+  closeAccount();
+  selectLoginMode('login');
+  render();
+  dom.loginForm.querySelector('input')?.focus();
+});
 
 dom.entryForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -568,10 +665,13 @@ async function useFolder(name: string | null): Promise<void> {
   await loadFromStore(`Saving to folder "${name}"`);
 }
 
-/** Same rule as the local userdata/ folder: profiles in the store load from it; the rest are written to it. */
+/**
+ * After choosing or reconnecting the account's folder: its files for this profile load (they win over this
+ * browser's copy), or the profile is written to it. A folder without the account file gets one.
+ */
 async function loadFromStore(message: string): Promise<void> {
-  await syncProfileListFromFiles();
-  await refreshProfiles();
+  if (account && !(await readAccountText(account.slug))) await writeAccountText(account.slug, accountCsv(account));
+  await reloadCurrent();
   showToast(message);
 }
 
@@ -588,7 +688,7 @@ async function useDrive(): Promise<void> {
 
 /** Switches to Google Drive; with profiles already here, first explains what happens to them. */
 async function pickDrive(): Promise<void> {
-  if (userdataStatus() === 'drive-signin' || profiles.length === 0) return useDrive();
+  if (userdataStatus() === 'drive-signin' || !current) return useDrive();
   const ok = await confirmChange({
     title: 'Save to Google Drive?',
     message: 'Sign in with Google. Your profiles will be saved as CSV files in a "Weight Tracker" folder in your Drive after every change.',
@@ -602,18 +702,15 @@ async function pickDrive(): Promise<void> {
   if (ok) await useDrive();
 }
 
-/** Picks a data folder. With profiles already here, first explains what happens to them. */
+/** Picks a new data folder for the logged-in account, after explaining what happens to the data. */
 async function pickDataFolder(): Promise<void> {
-  if (profiles.length === 0) {
-    await useChosenFolder();
-    return;
-  }
+  if (!current) return;
   const ok = await confirmChange({
-    title: 'Save to a folder?',
-    message: 'Pick a folder on this computer. Your profiles will be saved there as CSV files after every change.',
+    title: 'Save to a different folder?',
+    message: `Pick a folder on this computer. ${current.name}'s data will be saved there as CSV files after every change.`,
     lines: [
-      'If the folder already has files for a profile with the same name, those files are loaded and replace this browser\'s copy.',
-      'Profiles that are only in this browser are written to the folder.',
+      `If the folder already has files for ${current.name}, those files are loaded and replace this browser's copy.`,
+      'Otherwise your data is written to it, along with your login.',
     ],
     confirmLabel: 'Choose folder…',
   });
@@ -649,10 +746,6 @@ dom.signOutDriveBtn.addEventListener('click', async () => {
   await signOutDrive();
   showToast('Signed out of Google Drive. Your files are still in Drive.');
 });
-for (const field of dom.folderFields) {
-  field.querySelector('[data-folder-action]')!.addEventListener('click', folderAction);
-  field.querySelector('[data-drive-action]')!.addEventListener('click', () => void pickDrive());
-}
 
 setSyncErrorHandler((err) => {
   console.error(err);
@@ -696,5 +789,13 @@ document.addEventListener('visibilitychange', () => {
 
 initThemePicker(document.getElementById('theme-picker')!);
 void requestPersistentStorage();
-// Pick up profiles that exist in userdata/ (e.g. created in another browser) before showing the list.
-void syncProfileListFromFiles().then(() => refreshProfiles());
+/** Reopens the account logged in on this tab (e.g. after a reload); otherwise shows the login page. */
+async function start(): Promise<void> {
+  await localService();
+  const slug = currentSession();
+  const saved = slug ? await findAccount(slug) : undefined;
+  if (saved) await enter(saved, null, false);
+  else render();
+}
+
+void start();
