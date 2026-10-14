@@ -52,15 +52,6 @@ export const writeProfile = (dir: string, user: Pick<UserData, 'name' | 'unit' |
   files.writeProfile(nodeStore(dir), user);
 export const removeProfile = (dir: string, slug: string): Promise<void> => files.removeProfile(nodeStore(dir), slug);
 
-/** The text of userdata/<slug>-account.csv, or null if that account doesn't exist. */
-export const readAccount = (dir: string, slug: string): Promise<string | null> => nodeStore(dir).read(files.accountFile(slug));
-
-/** Writes userdata/<slug>-account.csv after checking it's a valid account file for that slug. */
-export async function writeAccount(dir: string, slug: string, text: string): Promise<void> {
-  if (!files.parseAccountCsv(text, slug)) throw new Error('Invalid account file');
-  await nodeStore(dir).write(files.accountFile(slug), text);
-}
-
 /**
  * One-time move from the old "<slug>-<id8>-weight.csv" naming to "<slug>-weight.csv".
  * Files with the same slug are merged (duplicate rows dropped); the originals go to userdata/.migrated/.

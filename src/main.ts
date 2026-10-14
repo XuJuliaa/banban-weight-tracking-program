@@ -1,16 +1,14 @@
 import './style.css';
+import { currentSession, endSession, startSession, usernameProblem, weightMatches } from './accounts';
 import {
-  createAccount,
-  currentSession,
-  endSession,
-  findAccount,
-  PASSWORD_MIN,
-  saveAccount,
-  startSession,
-  usernameProblem,
-  verifyPassword,
-} from './accounts';
-import { createProfile, loadUser, requestPersistentStorage, saveUser, loadUserFromFiles, setSyncErrorHandler } from './storage';
+  createProfile,
+  findProfileByName,
+  loadUser,
+  requestPersistentStorage,
+  saveUser,
+  loadUserFromFiles,
+  setSyncErrorHandler,
+} from './storage';
 import { mergeNew, parseExerciseCsv, parseFoodCsv, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
 import {
   chooseFolder,
@@ -19,17 +17,16 @@ import {
   onUserdataStatusChange,
   openAccount,
   pickAccountFolder,
-  readAccountText,
+  findProfileData,
   signOutDrive,
   useGoogleDrive,
   reconnectFolder,
   userdataPath,
   userdataStatus,
-  writeAccountText,
 } from './userdata-api';
 import { profileSlug } from './names';
-import { type AccountRecord, accountCsv, parseAccountCsv } from './profile-files';
-import type { UserData } from './types';
+import { folderSupported } from './folder-store';
+import type { UserData, WeightEntry, WeightUnit } from './types';
 import { dayKey, startOfDay } from './stats';
 import { overrideDay } from './edits';
 import { initThemePicker } from './theme';
@@ -57,8 +54,7 @@ import {
 import { categoryFromText, categoryLabel } from './food';
 import { exerciseCategoryFromText, validMinutes } from './exercise';
 
-/** The logged-in account and its profile; both null on the login page. */
-let account: AccountRecord | null = null;
+/** The logged-in profile; null on the login page. */
 let current: UserData | null = null;
 /** The folder picked in the Create account form, before the account exists. */
 let signupFolder: FileSystemDirectoryHandle | null = null;
@@ -142,94 +138,125 @@ async function reloadCurrent(): Promise<void> {
   render();
 }
 
-// --- Login: username + password, checked on this device (see accounts.ts). Each account has its own data folder.
+// --- Login by username and a weight from the profile's logged range. Each profile remembers its own data folder.
 
-const WRONG_LOGIN = 'Wrong username or password';
+/** The username typed in Log in that has no profile yet, while "Create account" / "Find it" are offered. */
+let missingName: string | null = null;
 
-const parseAccount = (text: string | null, slug: string) => (text ? parseAccountCsv(text, slug) : null);
+const usernameIn = (form: HTMLFormElement) => String(new FormData(form).get('username') ?? '').trim();
 
-function readLoginForm(form: HTMLFormElement): { name: string; password: string; confirm: string } {
-  const data = new FormData(form);
-  return {
-    name: String(data.get('username') ?? '').trim(),
-    password: String(data.get('password') ?? ''),
-    confirm: String(data.get('confirm') ?? ''),
-  };
+/**
+ * The weigh-ins of the profile with this name, or null if there isn't one: from userdata/ when running
+ * locally; on a hosted site, from this browser's copy (the browser also remembers the profile's folder).
+ */
+async function knownEntries(name: string, local: boolean): Promise<WeightEntry[] | null> {
+  if (local) return (await findProfileData(name))?.entries ?? null;
+  const summary = await findProfileByName(name);
+  return summary ? ((await loadUser(summary.userId))?.entries ?? []) : null;
+}
+
+const LOGIN_UNIT_KEY = 'loginUnit';
+
+function recalledLoginUnit(): WeightUnit {
+  try {
+    return localStorage.getItem(LOGIN_UNIT_KEY) === 'lb' ? 'lb' : 'kg';
+  } catch {
+    return 'kg';
+  }
+}
+
+/** The unit the login weight is typed in; remembered in this browser. */
+let loginUnit: WeightUnit = recalledLoginUnit();
+
+function setLoginUnit(unit: WeightUnit): void {
+  loginUnit = unit;
+  for (const btn of dom.loginUnitButtons) btn.setAttribute('aria-pressed', String(btn.dataset.unit === unit));
+  try {
+    localStorage.setItem(LOGIN_UNIT_KEY, unit);
+  } catch {
+    // Not remembered in private windows; the toggle still works.
+  }
+}
+
+/** The login weight must be in the profile's login range (see loginRange in accounts.ts). Shows the error if not. */
+function weightAccepted(entries: WeightEntry[]): boolean {
+  const weight = dom.loginWeight.valueAsNumber;
+  if (weightMatches(entries, weight, loginUnit)) return true;
+  showFormError(
+    dom.loginForm,
+    Number.isFinite(weight)
+      ? `That weight isn't in the range you've logged. Check the unit (${loginUnit}).`
+      : "Enter a weight you've logged before",
+  );
+  dom.loginWeight.focus();
+  return false;
 }
 
 /**
- * Opens a logged-in account: its folder (`handle` if one was just picked, else the one remembered), then
- * its profile, loaded from that folder or created there. Returns true if the profile already had data.
+ * Opens a profile: its folder (`handle` if one was just picked, else the one remembered), then its data,
+ * loaded from that folder or created there. Returns true if the profile already had data.
  */
-async function enter(found: AccountRecord, handle: FileSystemDirectoryHandle | null, ask: boolean): Promise<boolean> {
-  await openAccount(found.slug, handle, ask);
-  account = found;
-  startSession(found.slug);
-  const { user, existed } = await createProfile(found.name, 'kg');
+async function enter(name: string, handle: FileSystemDirectoryHandle | null, ask: boolean): Promise<boolean> {
+  await openAccount(profileSlug(name), handle, ask);
+  const { user, existed } = await createProfile(name, 'kg');
+  startSession(user.name);
   await selectProfile(user.userId);
   return existed;
 }
 
-async function logIn(form: HTMLFormElement): Promise<void> {
-  const { name, password } = readLoginForm(form);
-  const slug = profileSlug(name);
-  // Running locally, userdata/ always holds the account; on a hosted site, this browser remembers it.
-  const local = await localService();
-  let found = local ? parseAccount(await readAccountText(slug), slug) : await findAccount(slug);
-  let handle: FileSystemDirectoryHandle | null = null;
-  if (!found && !local) {
-    // First login in this browser: the account file is in the account's data folder.
-    const ok = await confirmChange({
-      title: 'Choose your data folder',
-      message: `This browser hasn't been used to log in as "${name}" yet. Choose the folder where your data is saved, and your password is checked against the account file in it.`,
-      confirmLabel: 'Choose folder…',
-    });
-    if (!ok) return;
-    handle = await pickAccountFolder();
-    if (!handle) return;
-    found = parseAccount(await readAccountText(slug, handle), slug);
-  }
-  if (!found || !(await verifyPassword(found, password))) {
-    showFormError(form, WRONG_LOGIN);
-    return;
-  }
-  await saveAccount(found);
-  form.reset();
-  await enter(found, handle, true);
-  showToast(`Welcome back, ${found.name}`);
+function showMissing(name: string | null, local: boolean): void {
+  missingName = name;
+  dom.loginMissing.hidden = name === null;
+  if (name === null) return;
+  const findable = !local && folderSupported();
+  dom.loginMissingText.textContent = local
+    ? `There's no profile named "${name}" yet. Create an account to start one.`
+    : `This browser doesn't have a profile named "${name}". Create an account for it${findable ? ', or find it in the folder where its data is saved' : ''}.`;
+  dom.loginFindBtn.hidden = !findable;
 }
 
-async function signUp(form: HTMLFormElement): Promise<void> {
-  const { name, password, confirm } = readLoginForm(form);
-  const problem =
-    usernameProblem(name) ??
-    (password.length < PASSWORD_MIN ? `Use at least ${PASSWORD_MIN} characters for the password`
-    : password !== confirm ? "The passwords don't match"
-    : null);
+async function logIn(form: HTMLFormElement): Promise<void> {
+  const name = usernameIn(form);
+  const problem = usernameProblem(name);
   if (problem) {
     showFormError(form, problem);
     return;
   }
-  const slug = profileSlug(name);
+  const local = await localService();
+  const entries = await knownEntries(name, local);
+  if (!entries) {
+    showMissing(name, local);
+    return;
+  }
+  if (!weightAccepted(entries)) return;
+  form.reset();
+  await enter(name, null, true);
+  showToast(`Welcome back, ${current?.name ?? name}`);
+}
+
+async function signUp(form: HTMLFormElement): Promise<void> {
+  const name = usernameIn(form);
+  const problem = usernameProblem(name);
+  if (problem) {
+    showFormError(form, problem);
+    return;
+  }
   const local = await localService();
   if (!local && !signupFolder) {
     showFormError(form, 'Choose a folder to save your data in');
     dom.signupFolderBtn.focus();
     return;
   }
-  const taken = (!local && (await findAccount(slug))) || (await readAccountText(slug, signupFolder));
-  if (taken) {
-    showFormError(form, `"${name}" already has an account. Log in instead.`);
+  if ((await knownEntries(name, local)) !== null) {
+    showFormError(form, `"${name}" already exists. Log in instead.`);
     return;
   }
-  const created = await createAccount(name, password);
-  await writeAccountText(slug, accountCsv(created), signupFolder);
-  await saveAccount(created);
   const handle = signupFolder;
   signupFolder = null;
   form.reset();
-  const existed = await enter(created, handle, true);
-  showToast(existed ? `Account created. Loaded ${created.name}'s saved data` : `Welcome, ${created.name}`);
+  // A folder that already has this name's files opens them rather than starting over.
+  const existed = await enter(name, handle, true);
+  showToast(existed ? `Opened ${current?.name ?? name}'s saved data from the folder` : `Welcome, ${name}`);
 }
 
 /** Runs a login form's action with its button disabled, showing any failure under the form. */
@@ -238,6 +265,7 @@ async function submitLogin(form: HTMLFormElement, action: (form: HTMLFormElement
   if (button.disabled) return;
   button.disabled = true;
   showFormError(form, null);
+  showMissing(null, false);
   try {
     await action(form);
   } catch (err) {
@@ -257,6 +285,37 @@ dom.signupForm.addEventListener('submit', (event) => {
   void submitLogin(dom.signupForm, signUp);
 });
 
+// "Create account" from a username that wasn't found: switch tabs with the name filled in.
+dom.loginCreateBtn.addEventListener('click', () => {
+  const name = missingName ?? '';
+  selectLoginMode('signup');
+  dom.signupForm.querySelector<HTMLInputElement>('input[name="username"]')!.value = name;
+  (dom.signupFolderBtn.hidden ? dom.signupForm.querySelector<HTMLButtonElement>('button[type="submit"]')! : dom.signupFolderBtn).focus();
+});
+
+// "Find it in a folder…": a profile this browser hasn't seen, saved in a folder from another browser.
+dom.loginFindBtn.addEventListener('click', async () => {
+  const name = missingName;
+  if (!name) return;
+  try {
+    const handle = await pickAccountFolder();
+    if (!handle) return;
+    const data = await findProfileData(name, handle);
+    if (!data) {
+      showFormError(dom.loginForm, `There are no files for "${name}" in "${handle.name}".`);
+      return;
+    }
+    showMissing(null, false);
+    if (!weightAccepted(data.entries)) return;
+    dom.loginForm.reset();
+    await enter(name, handle, true);
+    showToast(`Welcome back, ${current?.name ?? name}`);
+  } catch (err) {
+    console.error(err);
+    showToast("Couldn't open that folder");
+  }
+});
+
 dom.signupFolderBtn.addEventListener('click', async () => {
   try {
     signupFolder = (await pickAccountFolder()) ?? signupFolder;
@@ -272,6 +331,7 @@ function selectLoginMode(mode: LoginMode, focus = false): void {
   renderLogin(mode, focus);
   showFormError(dom.loginForm, null);
   showFormError(dom.signupForm, null);
+  showMissing(null, false);
 }
 
 for (const tab of dom.loginTabs) tab.addEventListener('click', () => selectLoginMode(tab.dataset.mode as LoginMode));
@@ -282,9 +342,11 @@ dom.loginTabs[0].parentElement!.addEventListener('keydown', (event) => {
   selectLoginMode(dom.signupForm.hidden ? 'signup' : 'login', true);
 });
 
+dom.loginUnitButtons.forEach((btn) => btn.addEventListener('click', () => setLoginUnit(btn.dataset.unit === 'lb' ? 'lb' : 'kg')));
+setLoginUnit(loginUnit);
+
 dom.logoutBtn.addEventListener('click', () => {
   endSession();
-  account = null;
   current = null;
   closeAccount();
   selectLoginMode('login');
@@ -665,12 +727,8 @@ async function useFolder(name: string | null): Promise<void> {
   await loadFromStore(`Saving to folder "${name}"`);
 }
 
-/**
- * After choosing or reconnecting the account's folder: its files for this profile load (they win over this
- * browser's copy), or the profile is written to it. A folder without the account file gets one.
- */
+/** After choosing or reconnecting the folder: its files for this profile load (they win over this browser's copy), or the profile is written to it. */
 async function loadFromStore(message: string): Promise<void> {
-  if (account && !(await readAccountText(account.slug))) await writeAccountText(account.slug, accountCsv(account));
   await reloadCurrent();
   showToast(message);
 }
@@ -710,7 +768,7 @@ async function pickDataFolder(): Promise<void> {
     message: `Pick a folder on this computer. ${current.name}'s data will be saved there as CSV files after every change.`,
     lines: [
       `If the folder already has files for ${current.name}, those files are loaded and replace this browser's copy.`,
-      'Otherwise your data is written to it, along with your login.',
+      'Otherwise your data is written to it.',
     ],
     confirmLabel: 'Choose folder…',
   });
@@ -789,12 +847,11 @@ document.addEventListener('visibilitychange', () => {
 
 initThemePicker(document.getElementById('theme-picker')!);
 void requestPersistentStorage();
-/** Reopens the account logged in on this tab (e.g. after a reload); otherwise shows the login page. */
+/** Reopens the profile logged in on this tab (e.g. after a reload); otherwise shows the login page. */
 async function start(): Promise<void> {
-  await localService();
-  const slug = currentSession();
-  const saved = slug ? await findAccount(slug) : undefined;
-  if (saved) await enter(saved, null, false);
+  const local = await localService();
+  const name = currentSession();
+  if (name && (await knownEntries(name, local)) !== null) await enter(name, null, false);
   else render();
 }
 

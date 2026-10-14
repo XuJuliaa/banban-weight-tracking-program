@@ -3,7 +3,6 @@
 //   <slug>-weight.csv     timestamp,weight_kg,weight_lb,entered_unit
 //   <slug>-food.csv       timestamp,food,category
 //   <slug>-exercise.csv   timestamp,activity,category,minutes
-//   <slug>-account.csv    username,salt,hash,iterations (the login's password hash, see src/accounts.ts)
 // Used by the local save service (server/userdata-files.ts, Node fs) and by a folder the user picks
 // in the browser (src/folder-store.ts, File System Access API).
 
@@ -43,36 +42,6 @@ export const weightFile = (slug: string) => `${slug}-weight.csv`;
 export const foodFile = (slug: string) => `${slug}-food.csv`;
 export const exerciseFile = (slug: string) => `${slug}-exercise.csv`;
 export const profileFiles = (slug: string) => [weightFile(slug), foodFile(slug), exerciseFile(slug)];
-export const accountFile = (slug: string) => `${slug}-account.csv`;
-
-/** A login: the username as typed at sign-up and a salted PBKDF2-SHA256 hash of the password (never the password). */
-export interface AccountRecord {
-  name: string;
-  slug: string;
-  /** Base64. */
-  salt: string;
-  /** Base64. */
-  hash: string;
-  iterations: number;
-}
-
-const ACCOUNT_HEADER = 'username,salt,hash,iterations';
-const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-
-export function accountCsv(account: AccountRecord): string {
-  return `${ACCOUNT_HEADER}\n${csvField(account.name)},${account.salt},${account.hash},${account.iterations}\n`;
-}
-
-/** The account in <slug>-account.csv, or null if the file isn't a valid account for that slug. */
-export function parseAccountCsv(text: string, slug: string): AccountRecord | null {
-  const [header, row] = parseCsvRows(text);
-  if (header?.join(',').trim().toLowerCase() !== ACCOUNT_HEADER || !row) return null;
-  const [name, salt, hash, iterations] = row.map((v) => v.trim());
-  const rounds = Number(iterations);
-  const ok =
-    name && profileSlug(name) === slug && BASE64.test(salt ?? '') && BASE64.test(hash ?? '') && Number.isInteger(rounds) && rounds >= 1;
-  return ok ? { name, slug, salt, hash, iterations: rounds } : null;
-}
 
 /** The unit the first weigh-in was entered in (either CSV format), or kg. Used as a default display unit. */
 export function detectUnit(weightCsv: string | null): WeightUnit {

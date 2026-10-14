@@ -94,7 +94,7 @@ npm run dev        # serves http://localhost:5173
   Tabs can be switched with the arrow keys, and the selected tab is remembered in this browser.
 
 ### Everything else
-- **Log in with a username and password.** Each account has its own profile and data folder. Usernames ignore case and punctuation, so "Juju" and "juju" are the same account. See [Logging in](#logging-in).
+- **Log in with a username.** A username is a profile's name, and each profile has its own data folder. Usernames ignore case and punctuation, so "Juju" and "juju" are the same profile. See [Logging in](#logging-in).
 - **Color themes.** Five swatches next to the title:
   - Warm coral (default)
   - Ocean blue
@@ -131,12 +131,18 @@ npm run dev        # serves http://localhost:5173
 ---
 
 ## Logging in
-The first screen has two tabs: **Log in** and **Create account**.
+The first screen has two tabs: **Log in** and **Create account**. There's no password; a weight you've logged stands in for one.
 
-- **Create account:** a username, a password (at least 8 characters, typed twice) and, on a hosted site, the folder to save your data in. New accounts show weights in kg; switch with the **kg | lb** toggle. If the folder already has data files for that name (from before logins existed), the account takes them over.
-- **Log in:** in a browser you've logged in from before, the app remembers your folder and loads your data from it. The browser may ask to allow the folder again. In a new browser, the app asks you to pick your data folder, then checks the password against the account file in it.
+- **Log in:** type your username and a weight close to what you've logged, in kg or lb (pick with the toggle next to the field; it's remembered). Both ends of the range are included, and the range uses whole numbers in the unit you pick:
+  - **Usually:** from your lowest weigh-in rounded down to your highest rounded up. For 120, 126 and 130 lb that's 120–130 lb; for 130 and 130.8 lb it's 130–131 lb.
+  - **Only one day logged** (e.g. a single weigh-in): also the nearest whole number ± 1. A single 128.6 lb allows 128–130 lb.
+  - In kg the same rules use kilograms, so 120–130 lb becomes 54–59 kg.
+
+  A profile with no weigh-ins yet needs no weight. If the profile exists and the weight fits, it opens and its data loads from its folder (the browser may ask to allow the folder again). If there's no profile with that name, the app offers **Create account**, with the name filled in. On a hosted site it also offers **Find it in a folder…**, for a profile saved from another browser: pick the folder that holds its files, and the weight is checked against them.
+- **Create account:** a username and, on a hosted site, the folder to save your data in. New profiles show weights in kg; switch with the **kg | lb** toggle. If the chosen folder already has files for that name, they're opened instead of starting over.
 - **Staying logged in:** a reload keeps you logged in; closing the tab or the browser logs you out. **Log out** in the header does it straight away.
-- **What the password protects.** There's no server: the password is checked on this device against a salted hash (PBKDF2-SHA256, 210,000 rounds), kept in the browser and as `<name>-account.csv` in the data folder. The password itself is never stored. It keeps other people using the same computer out of your profile, but the CSV files aren't encrypted: anyone who can open the folder can read them. There's no password reset; if you forget it, delete `<name>-account.csv` from the folder and create the account again (your data files are kept).
+- **Where a profile "exists":** running locally, in `userdata/`. On a hosted site, in this browser, which remembers each profile's folder.
+- **Light protection only.** The weight check stops someone opening a profile by just typing a name, but a range of weights is easy to guess for someone who knows you, and the CSV files in the folder aren't protected at all.
 
 ---
 
@@ -158,11 +164,10 @@ userdata/
   juju-weight.csv       # timestamp,weight_kg,weight_lb,entered_unit
   juju-food.csv         # timestamp,food,category
   juju-exercise.csv     # timestamp,activity,category,minutes
-  juju-account.csv      # username,salt,hash,iterations (the login)
   .migrated/            # originals kept from one-time file upgrades
 ```
 
-- **Logging in** checks the password against `userdata/<name>-account.csv`, so an account works from any browser on this computer.
+- **Logging in** looks for the username's files in `userdata/`, so a profile works from any browser on this computer.
 - **After logging in** the profile's latest data loads from the files, which win over the browser's copy.
 - **Every change** is written back immediately. Files are replaced atomically, so a crash can't leave half a file.
 - **Not in git.** `userdata/` is in `.gitignore`, so personal data is never committed.
@@ -176,8 +181,6 @@ Local HTTP API (dev and preview only):
 | `GET` | `/api/userdata/<slug>` | `{ slug, name, unit, entries, foods, exercises }` or `null` |
 | `PUT` | `/api/userdata/<slug>` | Validates the user record and rewrites that profile's CSV files |
 | `DELETE` | `/api/userdata/<slug>` | Removes that profile's CSV files |
-| `GET` | `/api/userdata/<slug>/account` | `{ text }`: the account file, or `null` |
-| `PUT` | `/api/userdata/<slug>/account` | Validates and writes `<slug>-account.csv` |
 
 ### Saving to a folder on a hosted site
 On a hosted copy of the app there's no `userdata/` service. The browser saves to a folder you pick instead, using the File System Access API.
@@ -187,8 +190,8 @@ On a hosted copy of the app there's no `userdata/` service. The browser saves to
 | Chrome, Edge, Brave, Arc on a computer | Choose a folder |
 | Safari, Firefox, any phone browser | A notice asks you to open the link in Chrome or Edge on a computer instead (Google Drive will cover these browsers, see below). |
 
-1. **Creating an account** includes a required **Where to save your data** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create account** stays blocked until a folder is chosen. The folder is remembered for that account, so two people can use different folders in one browser.
-2. **Saving:** the app writes `profiles.csv`, `<name>-account.csv`, and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `userdata/`, so you can even pick the project's `userdata/` folder. Several accounts can share one folder.
+1. **Creating an account** includes a required **Where to save your data** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create account** stays blocked until a folder is chosen. The folder is remembered for that profile, so two people can use different folders in one browser.
+2. **Saving:** the app writes `profiles.csv` and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `userdata/`, so you can even pick the project's `userdata/` folder. Several profiles can share one folder.
 3. **Existing files:** if the folder already has files for that name, they are loaded and win over this browser's copy.
 4. **After a browser restart**, Chrome may need your OK again. The app shows a **Reconnect your data folder** screen until you click **Reconnect folder**, so nothing is logged without reaching the folder.
 5. **Data & backup → Change folder…** switches to another folder. There's no browser-only mode.
@@ -196,7 +199,7 @@ On a hosted copy of the app there's no `userdata/` service. The browser saves to
 Browsers only reveal the folder's name to the page, not its full path.
 
 ### Saving to Google Drive
-> **Not offered right now.** With username and password logins, Drive saving is being reworked into a **Continue with Google** login (one profile per Google account, saved in that person's Drive). The code and setup below stay as they are for that.
+> **Not offered right now.** With username logins, Drive saving is being reworked into a **Continue with Google** login (one profile per Google account, saved in that person's Drive). The code and setup below stay as they are for that.
 
 **Use Google Drive** signs in with Google and keeps the same CSV files in a **Weight Tracker** folder in your own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
 
@@ -284,7 +287,7 @@ index.html                 page markup: header, cards, dialogs
 vite.config.ts             Vite + PWA config, and the userdata/ save service
 src/
   main.ts                  wiring: login, forms, ranges, tabs, import/export
-  accounts.ts              username + password logins (password hashing, session)
+  accounts.ts              username check and the logged-in session
   ui.ts                    rendering: stats, tables, today lists, food and exercise cards
   chart.ts                 weight line chart (SVG), axes and tick helpers
   bars.ts                  exercise minutes-per-day bar chart (SVG)
@@ -357,6 +360,6 @@ python3 -m http.server 8080
 ---
 
 ## Privacy
-- No analytics or tracking, and no data is sent anywhere. Logins are checked on the device; there's no account with us.
+- No analytics or tracking, and no data is sent anywhere. There's no account with us: a username only names a profile.
 - Locally, data lives only in `userdata/` (git-ignored) and the browser's IndexedDB.
 - On a hosted site, data lives only in the folder the visitor chooses, or in their own Google Drive, plus a browser cache. The page sends data nowhere else.
