@@ -11,11 +11,13 @@ import {
 } from './exercise';
 import { categoryCounts, categoryLabel, FOOD_CATEGORIES, UNCATEGORIZED } from './food';
 import { renderFoodPie } from './pie';
-import { dayKey, loggingFrequency60d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
+import { dayKey, loggingFrequency30d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
 import { profileSlug } from './names';
-import type { ProfileSummary, UserData } from './types';
+import { profileFiles } from './profile-files';
+import type { UserData } from './types';
 import { pointsIn } from './units';
-import type { UserdataStatus } from './userdata-api';
+import { folderSupported } from './folder-store';
+import { driveAccount, type UserdataStatus } from './userdata-api';
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -25,12 +27,23 @@ function el<T extends HTMLElement>(id: string): T {
 
 export const dom = {
   profileControls: el<HTMLDivElement>('profile-controls'),
-  profileSelect: el<HTMLSelectElement>('profile-select'),
-  newProfileBtn: el<HTMLButtonElement>('new-profile-btn'),
+  accountName: el<HTMLElement>('account-name'),
+  logoutBtn: el<HTMLButtonElement>('logout-btn'),
   unitToggle: el<HTMLDivElement>('unit-toggle'),
   unitButtons: [...document.querySelectorAll<HTMLButtonElement>('#unit-toggle button[data-unit]')],
-  onboarding: el<HTMLElement>('onboarding'),
-  onboardingForm: el<HTMLFormElement>('onboarding-form'),
+  login: el<HTMLElement>('login'),
+  loginTabs: [...document.querySelectorAll<HTMLButtonElement>('#login [role="tab"]')],
+  loginForm: el<HTMLFormElement>('login-form'),
+  signupForm: el<HTMLFormElement>('signup-form'),
+  loginWeight: el<HTMLInputElement>('login-weight'),
+  loginUnitButtons: [...document.querySelectorAll<HTMLButtonElement>('#login-unit button[data-unit]')],
+  loginMissing: el<HTMLDivElement>('login-missing'),
+  loginMissingText: el<HTMLParagraphElement>('login-missing-text'),
+  loginCreateBtn: el<HTMLButtonElement>('login-create-btn'),
+  loginFindBtn: el<HTMLButtonElement>('login-find-btn'),
+  signupFolder: el<HTMLDivElement>('signup-folder'),
+  signupFolderStatus: el<HTMLParagraphElement>('signup-folder-status'),
+  signupFolderBtn: el<HTMLButtonElement>('signup-folder-btn'),
   tracker: el<HTMLDivElement>('tracker'),
   entryForm: el<HTMLFormElement>('entry-form'),
   weightInput: el<HTMLInputElement>('weight-input'),
@@ -75,6 +88,19 @@ export const dom = {
   folderFiles: el<HTMLUListElement>('folder-files'),
   importBtn: el<HTMLButtonElement>('import-btn'),
   importFile: el<HTMLInputElement>('import-file'),
+  importFoodBtn: el<HTMLButtonElement>('import-food-btn'),
+  importExerciseBtn: el<HTMLButtonElement>('import-exercise-btn'),
+  folderActions: el<HTMLDivElement>('folder-actions'),
+  chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
+  reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
+  changeFolderBtn: el<HTMLButtonElement>('change-folder-btn'),
+  folderGate: el<HTMLElement>('folder-gate'),
+  folderGateTitle: el<HTMLHeadingElement>('folder-gate-title'),
+  folderGateText: el<HTMLParagraphElement>('folder-gate-text'),
+  folderGateBtn: el<HTMLButtonElement>('folder-gate-btn'),
+  driveGateBtn: el<HTMLButtonElement>('drive-gate-btn'),
+  useDriveBtn: el<HTMLButtonElement>('use-drive-btn'),
+  signOutDriveBtn: el<HTMLButtonElement>('sign-out-drive-btn'),
   overrideForm: el<HTMLFormElement>('override-form'),
   overrideDate: el<HTMLInputElement>('override-date'),
   overrideWeight: el<HTMLInputElement>('override-weight'),
@@ -84,9 +110,6 @@ export const dom = {
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
   confirmOk: el<HTMLButtonElement>('confirm-ok'),
-  newProfileDialog: el<HTMLDialogElement>('new-profile-dialog'),
-  newProfileForm: el<HTMLFormElement>('new-profile-form'),
-  newProfileCancel: el<HTMLButtonElement>('new-profile-cancel'),
   toast: el<HTMLParagraphElement>('toast'),
   rangeStart: el<HTMLInputElement>('range-start'),
   rangeEnd: el<HTMLInputElement>('range-end'),
@@ -110,19 +133,35 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
 
 const formatWeight = (w: number) => w.toFixed(1);
 
-export function renderProfiles(profiles: ProfileSummary[], currentId: string | null): void {
-  dom.profileControls.hidden = profiles.length === 0;
-  dom.profileSelect.replaceChildren(
-    ...profiles.map((p) => {
-      const option = new Option(p.name, p.userId);
-      option.selected = p.userId === currentId;
-      return option;
-    }),
-  );
+/** The top bar: who is logged in, with Log out. Hidden on the login page. */
+export function renderAccount(name: string | null): void {
+  dom.profileControls.hidden = name === null;
+  dom.accountName.textContent = name ?? '';
+}
+
+export type LoginMode = 'login' | 'signup';
+
+/** The login page's two tabs: Log in and Create account. */
+export function renderLogin(mode: LoginMode, focus = false): void {
+  for (const tab of dom.loginTabs) {
+    const selected = tab.dataset.mode === mode;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+  dom.loginForm.hidden = mode !== 'login';
+  dom.signupForm.hidden = mode !== 'signup';
+}
+
+/** Shows (or with null, clears) the error line under a login form's fields. */
+export function showFormError(form: HTMLFormElement, message: string | null): void {
+  const line = form.querySelector<HTMLElement>('[data-form-error]')!;
+  line.textContent = message ?? '';
+  line.hidden = message === null;
 }
 
 export function renderUser(user: UserData | null, now: number): void {
-  dom.onboarding.hidden = user !== null;
+  dom.login.hidden = user !== null;
   dom.tracker.hidden = user === null;
   if (!user) return;
 
@@ -135,7 +174,7 @@ export function renderUser(user: UserData | null, now: number): void {
   dom.avgValue.textContent = avg === null ? '—' : `${formatWeight(avg)} ${user.unit}`;
   dom.avgNote.textContent = avg === null ? 'No entries in the last 10 days' : '';
 
-  const freq = loggingFrequency60d(points, now);
+  const freq = loggingFrequency30d(points, now);
   dom.freqValue.textContent = `${Math.round(freq.pct)}%`;
   dom.freqNote.textContent = `${freq.daysLogged} of the last ${freq.totalDays} days had an entry`;
   dom.freqMeter.style.width = `${freq.pct}%`;
@@ -248,33 +287,126 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
 }
 
 
-/** The "Data folder" row: where this profile's data is saved, which is userdata/ when running locally. */
+/** The "Data folder" row: where this profile's data is saved, which is testdata/ when running locally. */
+/** What the app can offer for saving: a folder (Chrome/Edge on a computer) and/or Google Drive (if set up). */
+const canFolder = () => folderSupported();
+// Google Drive comes back as a "Continue with Google" login; until then the folder is the only choice.
+const canDrive = () => false;
+
 export function renderFolder(status: UserdataStatus, path: string | null, user: UserData | null): void {
-  const where = path ?? 'the project\'s userdata/ folder';
+  const saving = user ? `${user.name}'s data is saved to these files after every change:` : '';
+  const account = driveAccount();
   const text: Record<UserdataStatus, string> = {
-    unknown: 'Data folder: checking for the local userdata/ folder…',
-    connected: `Data folder: ${where}. ${user ? `${user.name}'s data is saved to these files after every change:` : ''}`,
+    unknown: 'Data folder: checking…',
+    connected: `Data folder: ${path ?? "the project's testdata/ folder"}. ${saving}`,
     offline: "Data folder: can't reach the local save service, so changes are only saved in this browser for now. Is npm run dev still running?",
-    unavailable:
-      'Data folder: none here. This copy of the app saves only inside this browser, so use Export now and then. ' +
-      'When you run the app with npm run dev, it saves to the project\'s userdata/ folder instead.',
+    folder: `Data folder: "${path}" (the folder you chose). ${saving}`,
+    'folder-permission': `Data folder: "${path}". The browser needs your OK to use it again.`,
+    drive: `Data folder: ${path}${account ? ` in ${account}'s Drive` : ''}. ${saving}`,
+    'drive-signin': `Data folder: ${path}. Sign in to Google again to keep saving there.`,
+    unavailable: 'Data folder: none chosen yet.',
+    unsupported: "Data folder: none. This browser can't save to a folder.",
   };
   dom.folderStatus.textContent = text[status];
 
-  const showFiles = status === 'connected' && user !== null;
+  // Switching between a folder and Google Drive (hosted site only; never back to browser-only saving).
+  const hosted = status !== 'connected' && status !== 'offline' && status !== 'unknown';
+  const onDrive = status === 'drive' || status === 'drive-signin';
+  dom.changeFolderBtn.textContent = onDrive ? 'Use a folder instead…' : 'Change folder…';
+  dom.useDriveBtn.textContent = status === 'drive-signin' ? 'Sign in to Google' : 'Use Google Drive instead';
+  const buttons: [HTMLButtonElement, boolean][] = [
+    [dom.chooseFolderBtn, status === 'unavailable' && canFolder()],
+    [dom.reconnectFolderBtn, status === 'folder-permission'],
+    [dom.changeFolderBtn, hosted && status !== 'unavailable' && canFolder()],
+    [dom.useDriveBtn, hosted && status !== 'drive' && canDrive()],
+    [dom.signOutDriveBtn, onDrive],
+  ];
+  for (const [button, show] of buttons) button.hidden = !show;
+  dom.folderActions.hidden = !buttons.some(([, show]) => show);
+
+  const showFiles = (status === 'connected' || status === 'folder' || status === 'drive') && user !== null;
   dom.folderFiles.hidden = !showFiles;
   if (showFiles) {
-    const slug = profileSlug(user.name);
+    const dir = status === 'connected' ? 'testdata' : path;
     dom.folderFiles.replaceChildren(
-      ...[`${slug}-weight.csv`, `${slug}-food.csv`].map((name) => {
+      ...profileFiles(profileSlug(user.name)).map((name) => {
         const li = document.createElement('li');
         const code = document.createElement('code');
-        code.textContent = `userdata/${name}`;
+        code.textContent = `${dir}/${name}`;
         li.append(code);
         return li;
       }),
     );
   }
+}
+
+/** True when data can be saved to files: the local testdata/ folder, a chosen folder, or Google Drive. */
+export const folderReady = (status: UserdataStatus) => status === 'connected' || status === 'folder' || status === 'drive';
+
+/**
+ * The required "Where to save your data" field when creating an account: the folder picked so far
+ * (`picked`), or the project's testdata/ folder when running locally.
+ */
+export function renderSignupFolder(status: UserdataStatus, path: string | null, picked: string | null): void {
+  const local = status === 'connected';
+  dom.signupFolder.classList.toggle('ready', local || picked !== null);
+  dom.signupFolderBtn.hidden = local || !canFolder();
+  dom.signupFolderBtn.textContent = picked ? 'Change…' : 'Choose folder…';
+  dom.signupFolderStatus.textContent =
+    local ? `Saved in the project's testdata/ folder (${path ?? 'testdata/'}).`
+    : picked ? `Saved in "${picked}".`
+    : !canFolder() ? "This browser can't save to a folder. Open this page in Chrome or Edge on a computer."
+    : 'Choose a folder on this computer for your CSV files, e.g. Documents/Weight Tracker.';
+}
+
+/**
+ * The full-page notice shown instead of the app when data can't be saved yet: the logged-in account's folder
+ * or Google Drive needs reconnecting or isn't chosen, or this browser has nothing to offer.
+ * Returns true when it's shown (the caller then hides everything else).
+ */
+export function renderGate(status: UserdataStatus, path: string | null, loggedIn: boolean): boolean {
+  let gate: { title: string; text: string; folder?: string; drive?: string } | null = null;
+  if (status === 'unsupported') {
+    gate = {
+      title: 'Open this in Chrome or Edge on a computer',
+      text:
+        'This app saves your data as CSV files in a folder on your computer, so it isn\'t lost if the browser clears its storage. ' +
+        'This browser can\'t save to a folder. Open the same link in Chrome, Edge, Brave or Arc on a Mac or PC.',
+    };
+  } else if (!loggedIn) {
+    // Before logging in, the login page itself asks for the folder.
+  } else if (status === 'folder-permission') {
+    gate = {
+      title: 'Reconnect your data folder',
+      text: `Your data is saved in the folder "${path}". The browser needs your OK to use it again after a restart.`,
+      folder: 'Reconnect folder',
+    };
+  } else if (status === 'drive-signin') {
+    const account = driveAccount();
+    gate = {
+      title: 'Sign in to Google Drive',
+      text: `Your data is saved in ${path}${account ? ` (${account})` : ''}. Sign in to continue: Google asks again on each visit and after an hour.`,
+      drive: 'Sign in to Google',
+    };
+  } else if (status === 'unavailable') {
+    gate = {
+      title: 'Choose where to save your data',
+      text: 'Pick the folder on this computer where your data is kept. Your files already in it are loaded from it.',
+      folder: canFolder() ? 'Choose folder…' : undefined,
+      drive: canDrive() ? 'Use Google Drive' : undefined,
+    };
+  }
+  dom.folderGate.hidden = gate === null;
+  if (gate) {
+    dom.folderGateTitle.textContent = gate.title;
+    dom.folderGateText.textContent = gate.text;
+    dom.folderGateBtn.hidden = !gate.folder;
+    dom.folderGateBtn.textContent = gate.folder ?? '';
+    dom.driveGateBtn.hidden = !gate.drive;
+    dom.driveGateBtn.textContent = gate.drive ?? '';
+    dom.driveGateBtn.classList.toggle('secondary', Boolean(gate.folder));
+  }
+  return gate !== null;
 }
 
 const overrideDayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });

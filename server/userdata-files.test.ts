@@ -14,7 +14,7 @@ const juju = {
 
 let dir: string;
 beforeEach(async () => {
-  dir = join(await mkdtemp(join(tmpdir(), 'userdata-')), 'userdata');
+  dir = join(await mkdtemp(join(tmpdir(), 'testdata-')), 'testdata');
 });
 afterEach(async () => {
   await rm(join(dir, '..'), { recursive: true, force: true });
