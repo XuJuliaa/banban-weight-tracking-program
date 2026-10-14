@@ -13,9 +13,12 @@ import { categoryCounts, categoryLabel, FOOD_CATEGORIES, UNCATEGORIZED } from '.
 import { renderFoodPie } from './pie';
 import { dayKey, loggingFrequency60d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
 import { profileSlug } from './names';
+import { profileFiles } from './profile-files';
 import type { ProfileSummary, UserData } from './types';
 import { pointsIn } from './units';
-import type { UserdataStatus } from './userdata-api';
+import { driveConfigured } from './drive-store';
+import { folderSupported } from './folder-store';
+import { driveAccount, type UserdataStatus } from './userdata-api';
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -75,6 +78,20 @@ export const dom = {
   folderFiles: el<HTMLUListElement>('folder-files'),
   importBtn: el<HTMLButtonElement>('import-btn'),
   importFile: el<HTMLInputElement>('import-file'),
+  importFoodBtn: el<HTMLButtonElement>('import-food-btn'),
+  importExerciseBtn: el<HTMLButtonElement>('import-exercise-btn'),
+  folderActions: el<HTMLDivElement>('folder-actions'),
+  chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
+  reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
+  changeFolderBtn: el<HTMLButtonElement>('change-folder-btn'),
+  folderFields: [...document.querySelectorAll<HTMLElement>('[data-folder-field]')],
+  folderGate: el<HTMLElement>('folder-gate'),
+  folderGateTitle: el<HTMLHeadingElement>('folder-gate-title'),
+  folderGateText: el<HTMLParagraphElement>('folder-gate-text'),
+  folderGateBtn: el<HTMLButtonElement>('folder-gate-btn'),
+  driveGateBtn: el<HTMLButtonElement>('drive-gate-btn'),
+  useDriveBtn: el<HTMLButtonElement>('use-drive-btn'),
+  signOutDriveBtn: el<HTMLButtonElement>('sign-out-drive-btn'),
   overrideForm: el<HTMLFormElement>('override-form'),
   overrideDate: el<HTMLInputElement>('override-date'),
   overrideWeight: el<HTMLInputElement>('override-weight'),
@@ -249,32 +266,130 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
 
 
 /** The "Data folder" row: where this profile's data is saved, which is userdata/ when running locally. */
+/** What the app can offer for saving: a folder (Chrome/Edge on a computer) and/or Google Drive (if set up). */
+const canFolder = () => folderSupported();
+const canDrive = () => driveConfigured();
+
 export function renderFolder(status: UserdataStatus, path: string | null, user: UserData | null): void {
-  const where = path ?? 'the project\'s userdata/ folder';
+  const saving = user ? `${user.name}'s data is saved to these files after every change:` : '';
+  const account = driveAccount();
   const text: Record<UserdataStatus, string> = {
-    unknown: 'Data folder: checking for the local userdata/ folder…',
-    connected: `Data folder: ${where}. ${user ? `${user.name}'s data is saved to these files after every change:` : ''}`,
+    unknown: 'Data folder: checking…',
+    connected: `Data folder: ${path ?? "the project's userdata/ folder"}. ${saving}`,
     offline: "Data folder: can't reach the local save service, so changes are only saved in this browser for now. Is npm run dev still running?",
-    unavailable:
-      'Data folder: none here. This copy of the app saves only inside this browser, so use Export now and then. ' +
-      'When you run the app with npm run dev, it saves to the project\'s userdata/ folder instead.',
+    folder: `Data folder: "${path}" (the folder you chose). ${saving}`,
+    'folder-permission': `Data folder: "${path}". The browser needs your OK to use it again.`,
+    drive: `Data folder: ${path}${account ? ` in ${account}'s Drive` : ''}. ${saving}`,
+    'drive-signin': `Data folder: ${path}. Sign in to Google again to keep saving there.`,
+    unavailable: 'Data folder: none chosen yet.',
+    unsupported: "Data folder: none. This browser can't save to a folder.",
   };
   dom.folderStatus.textContent = text[status];
 
-  const showFiles = status === 'connected' && user !== null;
+  // Switching between a folder and Google Drive (hosted site only; never back to browser-only saving).
+  const hosted = status !== 'connected' && status !== 'offline' && status !== 'unknown';
+  const onDrive = status === 'drive' || status === 'drive-signin';
+  dom.changeFolderBtn.textContent = onDrive ? 'Use a folder instead…' : 'Change folder…';
+  dom.useDriveBtn.textContent = status === 'drive-signin' ? 'Sign in to Google' : 'Use Google Drive instead';
+  const buttons: [HTMLButtonElement, boolean][] = [
+    [dom.chooseFolderBtn, status === 'unavailable' && canFolder()],
+    [dom.reconnectFolderBtn, status === 'folder-permission'],
+    [dom.changeFolderBtn, hosted && status !== 'unavailable' && canFolder()],
+    [dom.useDriveBtn, hosted && status !== 'drive' && canDrive()],
+    [dom.signOutDriveBtn, onDrive],
+  ];
+  for (const [button, show] of buttons) button.hidden = !show;
+  dom.folderActions.hidden = !buttons.some(([, show]) => show);
+
+  const showFiles = (status === 'connected' || status === 'folder' || status === 'drive') && user !== null;
   dom.folderFiles.hidden = !showFiles;
   if (showFiles) {
-    const slug = profileSlug(user.name);
+    const dir = status === 'connected' ? 'userdata' : path;
     dom.folderFiles.replaceChildren(
-      ...[`${slug}-weight.csv`, `${slug}-food.csv`].map((name) => {
+      ...profileFiles(profileSlug(user.name)).map((name) => {
         const li = document.createElement('li');
         const code = document.createElement('code');
-        code.textContent = `userdata/${name}`;
+        code.textContent = `${dir}/${name}`;
         li.append(code);
         return li;
       }),
     );
   }
+}
+
+/** True when data can be saved to files: the local userdata/ folder, a chosen folder, or Google Drive. */
+export const folderReady = (status: UserdataStatus) => status === 'connected' || status === 'folder' || status === 'drive';
+
+/** The required "Where to save your data" field in the create-profile forms. */
+export function renderFolderFields(status: UserdataStatus, path: string | null): void {
+  const account = driveAccount();
+  for (const field of dom.folderFields) {
+    const text = field.querySelector<HTMLElement>('[data-folder-status]')!;
+    const folderBtn = field.querySelector<HTMLButtonElement>('[data-folder-action]')!;
+    const driveBtn = field.querySelector<HTMLButtonElement>('[data-drive-action]')!;
+    field.classList.toggle('ready', folderReady(status));
+    folderBtn.hidden = status === 'connected' || !canFolder();
+    driveBtn.hidden = status === 'connected' || status === 'drive' || !canDrive();
+    folderBtn.textContent = status === 'folder-permission' ? 'Reconnect folder' : status === 'folder' ? 'Change…' : status === 'unavailable' ? 'Choose folder…' : 'Use a folder';
+    driveBtn.textContent = status === 'drive-signin' ? 'Sign in to Google' : status === 'unavailable' ? 'Use Google Drive' : 'Use Google Drive instead';
+    text.textContent =
+      status === 'connected' ? `Saved in the project's userdata/ folder (${path ?? 'userdata/'}).`
+      : status === 'folder' ? `Saved in "${path}".`
+      : status === 'folder-permission' ? `"${path}" needs your OK again.`
+      : status === 'drive' ? `Saved in ${path}${account ? ` (${account})` : ''}.`
+      : status === 'drive-signin' ? `Saved in ${path}. Sign in to Google to continue.`
+      : canFolder() && canDrive() ? 'Choose a folder on this computer, or your Google Drive, for your CSV files.'
+      : canDrive() ? 'Your CSV files are kept in a "Weight Tracker" folder in your Google Drive.'
+      : 'Choose a folder on this computer for your CSV files, e.g. Documents/Weight Tracker.';
+  }
+}
+
+/**
+ * The full-page notice shown instead of the app when data can't be saved yet: the chosen folder or Google
+ * Drive needs reconnecting, profiles exist but nothing is chosen, or this browser has nothing to offer.
+ * Returns true when it's shown (the caller then hides everything else).
+ */
+export function renderGate(status: UserdataStatus, path: string | null, hasProfiles: boolean): boolean {
+  let gate: { title: string; text: string; folder?: string; drive?: string } | null = null;
+  if (status === 'unsupported') {
+    gate = {
+      title: 'Open this in Chrome or Edge on a computer',
+      text:
+        'This app saves your data as CSV files in a folder on your computer, so it isn\'t lost if the browser clears its storage. ' +
+        'This browser can\'t save to a folder. Open the same link in Chrome, Edge, Brave or Arc on a Mac or PC.',
+    };
+  } else if (status === 'folder-permission') {
+    gate = {
+      title: 'Reconnect your data folder',
+      text: `Your data is saved in the folder "${path}". The browser needs your OK to use it again after a restart.`,
+      folder: 'Reconnect folder',
+    };
+  } else if (status === 'drive-signin') {
+    const account = driveAccount();
+    gate = {
+      title: 'Sign in to Google Drive',
+      text: `Your data is saved in ${path}${account ? ` (${account})` : ''}. Sign in to continue: Google asks again on each visit and after an hour.`,
+      drive: 'Sign in to Google',
+    };
+  } else if (status === 'unavailable' && hasProfiles) {
+    gate = {
+      title: 'Choose where to save your data',
+      text: 'Pick a folder on this computer or your Google Drive. Profiles already saved there are loaded from it.',
+      folder: canFolder() ? 'Choose folder…' : undefined,
+      drive: canDrive() ? 'Use Google Drive' : undefined,
+    };
+  }
+  dom.folderGate.hidden = gate === null;
+  if (gate) {
+    dom.folderGateTitle.textContent = gate.title;
+    dom.folderGateText.textContent = gate.text;
+    dom.folderGateBtn.hidden = !gate.folder;
+    dom.folderGateBtn.textContent = gate.folder ?? '';
+    dom.driveGateBtn.hidden = !gate.drive;
+    dom.driveGateBtn.textContent = gate.drive ?? '';
+    dom.driveGateBtn.classList.toggle('secondary', Boolean(gate.folder));
+  }
+  return gate !== null;
 }
 
 const overrideDayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });

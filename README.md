@@ -3,7 +3,11 @@
 A private tracker for **weight, food and exercise**. There's no account, no sign-in and no remote server.
 
 - **Running locally** with `npm run dev`, every profile is saved as plain CSV files in the project's `userdata/` folder.
-- **Hosted as a static site** (GitHub Pages, or installed on a phone), data stays in that browser's storage.
+- **Hosted as a static site** (just open a link), you choose where the same CSV files are kept when creating a profile:
+  - a **folder on your computer** (Chrome, Edge, Brave or Arc on a computer), or
+  - your **Google Drive**, which works in any browser, phones included.
+
+  There's no browser-only mode, because browser storage is too easy to lose.
 
 Built with Vite + TypeScript. There's no UI framework and no charting library: the charts are hand-drawn SVG.
 
@@ -98,7 +102,8 @@ npm run dev        # serves http://localhost:5173
   - Graphite (black on tinted gray)
 
   Each has a matching dark mode that follows the system setting. Chart category colors come from a palette checked for color-blind separation and contrast.
-- **Backup.** Export the weight, food and exercise logs as CSV, and import weigh-ins from a CSV.
+- **Required data folder on a hosted site.** Creating a profile includes choosing where its CSV files are saved: a [folder on your computer](#saving-to-a-folder-on-a-hosted-site) or [Google Drive](#saving-to-google-drive).
+- **Backup and restore.** Export the weight, food and exercise logs as CSV, and import any of them back.
 - **Works offline and installs like an app** (PWA). On a phone, use *Add to Home Screen*.
 
 ---
@@ -117,15 +122,20 @@ npm run dev        # serves http://localhost:5173
 | See a week of exercise | **Exercise** card → **Summary** tab |
 | See daily cardio minutes | **Exercise** card → **Cardio** tab |
 | Back up my data | **Data & backup** → Export weight / food / exercise CSV |
+| Restore a backup | **Data & backup** → Import weight / food / exercise CSV |
+| Pick the data folder (hosted site) | When creating a profile; later **Data & backup** → **Change folder…** / **Use Google Drive instead** |
 | Change colors | The swatches next to the title |
 
 ---
 
 ## How data is stored
-There are two places. The **Data & backup → Data folder** row in the app shows which one is in use.
+Data is always saved as CSV files in a data folder. The **Data & backup → Data folder** row in the app shows which one:
 
-1. **`userdata/` CSV files** are the source of truth whenever the app runs through `npm run dev` or `npm run preview`.
-2. **Browser storage (IndexedDB)** is a cache when running locally, and the only copy on GitHub Pages or a phone.
+1. **`userdata/`**, whenever the app runs through `npm run dev` or `npm run preview`.
+2. **A folder you chose**, on a hosted site (Chrome, Edge, Brave or Arc on a computer).
+3. **Google Drive**, on a hosted site in any browser, once it's [set up](#saving-to-google-drive).
+
+The app doesn't let you log anything without a data folder. Browser storage (IndexedDB) keeps a copy as a cache only, and the folder's files are the source of truth.
 
 ### `userdata/` folder (while running locally)
 A small save service built into the Vite dev server (`server/userdata-plugin.ts`) keeps every profile in `userdata/`:
@@ -154,6 +164,49 @@ Local HTTP API (dev and preview only):
 | `PUT` | `/api/userdata/<slug>` | Validates the user record and rewrites that profile's CSV files |
 | `DELETE` | `/api/userdata/<slug>` | Removes that profile's CSV files |
 
+### Saving to a folder on a hosted site
+On a hosted copy of the app there's no `userdata/` service. The browser saves to a folder you pick instead, using the File System Access API.
+
+| Browser | What happens |
+| --- | --- |
+| Chrome, Edge, Brave, Arc on a computer | Choose a folder, or Google Drive |
+| Safari, Firefox, any phone browser | Google Drive. If Drive isn't set up for the site, a notice asks you to open the link in Chrome or Edge on a computer instead. |
+
+1. **Creating a profile** includes a required **Data folder** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create** stays blocked until a folder is chosen.
+2. **Saving:** the app writes `profiles.csv` and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `userdata/`, so you can even pick the project's `userdata/` folder.
+3. **Existing files:** if the folder already has files for a profile with the same name, they are loaded and win over this browser's copy. Profiles only in this browser are written to the folder.
+4. **After a browser restart**, Chrome may need your OK again. The app shows a **Reconnect your data folder** screen until you click **Reconnect folder**, so nothing is logged without reaching the folder.
+5. **Data & backup → Change folder…** switches to another folder, and **Use Google Drive instead** switches to Drive. There's no browser-only mode.
+
+Browsers only reveal the folder's name to the page, not its full path.
+
+### Saving to Google Drive
+**Use Google Drive** signs in with Google and keeps the same CSV files in a **Weight Tracker** folder in your own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
+
+- **Narrow permission.** The app asks only for `drive.file`, so it can see the files it created and nothing else in your Drive.
+- **Signing in.** Google's sign-in lasts an hour and isn't kept between visits. Each visit, and after an hour, the app shows **Sign in to Google** (one tap) before you can log anything.
+- **Several devices.** The phone and the computer use the same files. When you come back to the tab, the open profile reloads from Drive. Saves replace whole files, so the last save wins.
+- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use **Import … CSV** to bring existing data in.
+- **Signing out.** **Data & backup → Sign out of Google Drive** leaves the files in Drive; the app then asks where to save.
+
+#### One-time setup (by whoever hosts the site)
+Drive needs a Google OAuth client ID. It's free and has no client secret.
+1. Go to [console.cloud.google.com](https://console.cloud.google.com/), create a project (e.g. *Weight Tracker*), and enable the **Google Drive API** (*APIs & Services → Library*).
+2. **OAuth consent screen:**
+   - choose **External**, then fill in the app name and support email;
+   - add the scope `.../auth/drive.file`;
+   - leave it in **Testing** and add every user's Gmail address under **Test users** (up to 100).
+3. **Credentials → Create credentials → OAuth client ID:**
+   - type **Web application**;
+   - under **Authorized JavaScript origins**, add `http://localhost:5173`, `http://localhost:8080` and, later, the hosted site's origin (e.g. `https://<name>.pages.dev`). Origins have no path.
+4. Copy the client ID into `.env.local` in the project (see `.env.example`):
+   ```
+   VITE_GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+   ```
+   For a hosted build, set the same variable in the host's build settings. Then rebuild.
+
+While the app is in Testing, Google shows an "unverified app" notice and only the listed test users can sign in. That's fine for personal and family use. Without a client ID, the Drive option is simply hidden.
+
 ### Browser storage
 IndexedDB database `keyval-store`. Each browser and each web address (`localhost:5173`, the GitHub Pages site…) keeps its own copy.
 
@@ -161,6 +214,8 @@ IndexedDB database `keyval-store`. Each browser and each web address (`localhost
 | --- | --- |
 | `profiles` | List of `{ userId, name }` |
 | `user:<userId>` | The whole record: name, unit, weigh-ins, foods, exercises, `updatedAt` |
+| `dataFolder` | The folder chosen with **Choose folder…**, if any |
+| `driveState` | The Google Drive folder id and account email, if Drive is used. The sign-in token itself is never stored. |
 
 ---
 
@@ -181,7 +236,7 @@ The unit it was typed in is exact; the other is converted (1 kg = 2.20462 lb, ro
 timestamp,food,category
 2026-10-11T08:05:00,Oatmeal with berries,Grains & starches
 ```
-The category may be blank (uncategorized). Older two-column files still load.
+The category may be blank (uncategorized). Older two-column files still load. **Import food CSV** skips rows with the same time and food as an existing entry.
 
 **Exercise:** `userdata/<name>-exercise.csv` and **Export exercise CSV**.
 ```
@@ -189,7 +244,7 @@ timestamp,activity,category,minutes
 2026-10-11T06:54:00,Swim,Cardio,20
 2026-10-11T18:30:00,"Weights, upper body",Strength,40
 ```
-The category is `Cardio`, `Strength` or `Flexibility`; minutes run from 1 to 1440. Rows that don't fit are skipped when reading.
+The category is `Cardio`, `Strength` or `Flexibility`; minutes run from 1 to 1440. Rows that don't fit are skipped when reading. **Import exercise CSV** skips rows with the same time and activity as an existing entry.
 
 ---
 
@@ -222,15 +277,18 @@ src/
   units.ts                 kg/lb conversion and entries stored in both units
   edits.ts                 "correct a weight" logic
   csv.ts                   CSV read/write for weight, food and exercise
-  storage.ts               IndexedDB, synced with userdata/
-  userdata-api.ts          client for the local save service
+  storage.ts               IndexedDB, synced with the data folder
+  userdata-api.ts          picks the data folder: local save service, chosen folder, or none
+  profile-files.ts         the folder's file layout (profiles.csv, <slug>-*.csv), shared by both
+  folder-store.ts          a folder picked in the browser (File System Access API)
+  drive-store.ts           Google Drive as the data folder (Google sign-in + Drive REST API)
   theme.ts                 color theme picker
   names.ts                 profile name → file slug
   types.ts                 shared types
   style.css                themes (light/dark) and layout
 server/
   userdata-plugin.ts       HTTP routes added to the dev/preview server
-  userdata-files.ts        reading, writing, validating and migrating userdata/ files
+  userdata-files.ts        the Node adapter for userdata/ and one-time file migrations
 scripts/                   sample data generators
 test/data/                 sample weight CSV
 ```
@@ -251,7 +309,9 @@ The tests cover:
 - CSV reading and writing for all three logs
 - food counts, the exercise summary and daily minutes
 - the chart geometry: monotone curve, pie slices and bar shapes
-- the `userdata/` files: writing, reading, validation and migration
+- the folder file layout (in memory and on disk): writing, reading, validation and migration
+- import duplicate-skipping
+- the Google Drive store, against a fake Drive API
 
 ---
 
@@ -268,11 +328,17 @@ The site is then served at `https://<user>.github.io/banban-weight-tracking-prog
 
 > GitHub Pages on a **private** repo needs a paid plan (GitHub Pro / Team). Otherwise make the repo public, or use another static host such as Cloudflare Pages or Netlify, with `npm run build` as the build command and `dist` as the output folder.
 
-On a hosted site there is no `userdata/` folder. Each visitor's data stays in their own browser. Use the CSV exports to back it up.
+On a hosted site there is no `userdata/` folder. Each visitor saves to a folder on their own computer (Chrome/Edge) or to their own Google Drive. The CSV exports remain available as an extra backup.
+
+To try the hosted behaviour locally, serve the build from a plain static server under the same base path. For example, from an empty folder that contains a link named `banban-weight-tracking-program` pointing at `dist/`:
+```sh
+python3 -m http.server 8080
+# open http://localhost:8080/banban-weight-tracking-program/
+```
 
 ---
 
 ## Privacy
 - No account, analytics or tracking, and no data is sent anywhere.
 - Locally, data lives only in `userdata/` (git-ignored) and the browser's IndexedDB.
-- On a hosted site, data lives only in the visitor's browser.
+- On a hosted site, data lives only in the folder the visitor chooses, or in their own Google Drive, plus a browser cache. The page sends data nowhere else.

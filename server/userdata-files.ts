@@ -5,33 +5,19 @@
 //   userdata/<slug>-exercise.csv   timestamp,activity,category,minutes
 // These files are the source of truth while the app runs locally: any browser that opens
 // a profile loads it from here (see userdata-plugin.ts for the HTTP routes).
+// The file layout itself lives in src/profile-files.ts, shared with the browser's folder picker;
+// this module is its Node adapter plus the one-time file migrations.
 
 import { copyFile, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  csvField,
-  parseCsvRows,
-  parseExerciseCsv,
-  parseFoodCsv,
-  parseWeightCsv,
-  toExerciseCsv,
-  toFoodCsv,
-  toWeightCsv,
-} from '../src/csv.ts';
-import { exerciseCategoryFromText, validMinutes } from '../src/exercise.ts';
-import { categoryFromText } from '../src/food.ts';
-import { profileSlug } from '../src/names.ts';
-import type { ExerciseEntry, FileProfile, FileProfileData, FoodEntry, UserData, WeightEntry, WeightUnit } from '../src/types.ts';
+import { parseFoodCsv, parseWeightCsv, toWeightCsv } from '../src/csv.ts';
+import * as files from '../src/profile-files.ts';
+import { detectUnit, nameFromSlug, type TextStore, VALID_SLUG } from '../src/profile-files.ts';
+import type { FileProfile, FileProfileData, FoodEntry, UserData, WeightEntry } from '../src/types.ts';
 
-const INDEX = 'profiles.csv';
+export { VALID_SLUG, validateUser } from '../src/profile-files.ts';
+
 const MIGRATED = '.migrated';
-
-/** Slugs as made by profileSlug; anything else (e.g. "../x") is refused before touching the disk. */
-export const VALID_SLUG = /^[a-z0-9-]{1,60}$/;
-
-const weightFile = (slug: string) => `${slug}-weight.csv`;
-const foodFile = (slug: string) => `${slug}-food.csv`;
-const exerciseFile = (slug: string) => `${slug}-exercise.csv`;
 
 async function readText(path: string): Promise<string | null> {
   try {
@@ -47,98 +33,24 @@ async function writeAtomic(path: string, text: string): Promise<void> {
   await rename(tmp, path);
 }
 
-/** The unit the first weigh-in was entered in (either CSV format), or kg. Used as a default display unit. */
-function detectUnit(weightCsv: string | null): WeightUnit {
-  if (!weightCsv) return 'kg';
-  try {
-    return parseWeightCsv(weightCsv, 'kg').entries[0]?.entered ?? 'kg';
-  } catch {
-    return 'kg';
-  }
-}
-
-/** "juju" → "Juju", "ana-maria" → "Ana Maria": a display name for files with no profiles.csv row. */
-const nameFromSlug = (slug: string) => slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-async function readIndex(dir: string): Promise<FileProfile[]> {
-  const text = await readText(join(dir, INDEX));
-  if (!text) return [];
-  const [, ...rows] = parseCsvRows(text);
-  return rows
-    .filter((r) => r[0]?.trim())
-    .map(([name, unit]) => ({ slug: profileSlug(name), name: name.trim(), unit: unit?.trim() === 'lb' ? 'lb' : 'kg' }));
-}
-
-async function writeIndex(dir: string, profiles: FileProfile[]): Promise<void> {
-  const rows = [...profiles].sort((a, b) => a.name.localeCompare(b.name)).map((p) => `${csvField(p.name)},${p.unit}`);
-  await writeAtomic(join(dir, INDEX), ['name,unit', ...rows].join('\n') + '\n');
-}
-
-/** Every profile in the folder: those in profiles.csv, plus any *-weight.csv without a row there. */
-export async function listProfiles(dir: string): Promise<FileProfile[]> {
-  const index = await readIndex(dir);
-  const known = new Set(index.map((p) => p.slug));
-  let files: string[] = [];
-  try {
-    files = await readdir(dir);
-  } catch {
-    return index;
-  }
-  for (const f of files) {
-    const slug = /^(.+)-weight\.csv$/.exec(f)?.[1];
-    if (slug && VALID_SLUG.test(slug) && !known.has(slug)) {
-      known.add(slug);
-      index.push({ slug, name: nameFromSlug(slug), unit: detectUnit(await readText(join(dir, f))) });
-    }
-  }
-  return index;
-}
-
-/** One profile's data, or null if it has no files. Entry ids are made from row order, since CSV rows have none. */
-export async function readProfile(dir: string, slug: string): Promise<FileProfileData | null> {
-  const weightCsv = await readText(join(dir, weightFile(slug)));
-  const foodCsv = await readText(join(dir, foodFile(slug)));
-  const exerciseCsv = await readText(join(dir, exerciseFile(slug)));
-  if (weightCsv === null && foodCsv === null && exerciseCsv === null) return null;
-  const meta = (await readIndex(dir)).find((p) => p.slug === slug) ?? {
-    slug,
-    name: nameFromSlug(slug),
-    unit: detectUnit(weightCsv),
+/** The folder `dir` as a TextStore. Writes go through a temp file and a rename, so a crash can't leave half a file. */
+export function nodeStore(dir: string): TextStore {
+  return {
+    read: (name) => readText(join(dir, name)),
+    async write(name, text) {
+      await mkdir(dir, { recursive: true });
+      await writeAtomic(join(dir, name), text);
+    },
+    remove: (name) => unlink(join(dir, name)).catch(() => {}),
+    list: () => readdir(dir).catch(() => []),
   };
-  const entries: WeightEntry[] = weightCsv
-    ? parseWeightCsv(weightCsv, meta.unit).entries.map((e, i) => ({ id: `w${i}-${e.timestamp}`, ...e }))
-    : [];
-  const foods: FoodEntry[] = foodCsv ? parseFoodCsv(foodCsv).map((f, i) => ({ id: `f${i}-${f.timestamp}`, ...f })) : [];
-  const exercises: ExerciseEntry[] = exerciseCsv
-    ? parseExerciseCsv(exerciseCsv).map((x, i) => ({ id: `x${i}-${x.timestamp}`, ...x }))
-    : [];
-  return { ...meta, entries, foods, exercises };
 }
 
-/**
- * Writes a profile's CSVs and its profiles.csv row. Returns the slug. The exercise file is only written
- * when the record has an exercise list, so a record from before exercise logging can't empty it.
- */
-export async function writeProfile(
-  dir: string,
-  user: Pick<UserData, 'name' | 'unit' | 'entries' | 'foods' | 'exercises'>,
-): Promise<string> {
-  await mkdir(dir, { recursive: true });
-  const slug = profileSlug(user.name);
-  const record: UserData = { version: 1, userId: slug, ...user };
-  await writeAtomic(join(dir, weightFile(slug)), toWeightCsv(record));
-  await writeAtomic(join(dir, foodFile(slug)), toFoodCsv(record));
-  if (user.exercises) await writeAtomic(join(dir, exerciseFile(slug)), toExerciseCsv(record));
-  const index = (await readIndex(dir)).filter((p) => p.slug !== slug);
-  await writeIndex(dir, [...index, { slug, name: user.name.trim(), unit: user.unit }]);
-  return slug;
-}
-
-export async function removeProfile(dir: string, slug: string): Promise<void> {
-  for (const f of [weightFile(slug), foodFile(slug), exerciseFile(slug)]) await unlink(join(dir, f)).catch(() => {});
-  const index = await readIndex(dir);
-  if (index.some((p) => p.slug === slug)) await writeIndex(dir, index.filter((p) => p.slug !== slug));
-}
+export const listProfiles = (dir: string): Promise<FileProfile[]> => files.listProfiles(nodeStore(dir));
+export const readProfile = (dir: string, slug: string): Promise<FileProfileData | null> => files.readProfile(nodeStore(dir), slug);
+export const writeProfile = (dir: string, user: Pick<UserData, 'name' | 'unit' | 'entries' | 'foods' | 'exercises'>): Promise<string> =>
+  files.writeProfile(nodeStore(dir), user);
+export const removeProfile = (dir: string, slug: string): Promise<void> => files.removeProfile(nodeStore(dir), slug);
 
 /**
  * One-time move from the old "<slug>-<id8>-weight.csv" naming to "<slug>-weight.csv".
@@ -214,40 +126,4 @@ export async function upgradeWeightFiles(dir: string): Promise<string[]> {
     upgraded.push(slug);
   }
   return upgraded;
-}
-
-/** Checks the shape of a user record sent by the browser. Throws with a readable message. */
-export function validateUser(raw: unknown, slug: string): UserData {
-  const d = raw as Partial<UserData> | null;
-  const ok =
-    d &&
-    typeof d.name === 'string' &&
-    d.name.trim().length > 0 &&
-    d.name.length <= 100 &&
-    profileSlug(d.name) === slug &&
-    (d.unit === 'kg' || d.unit === 'lb') &&
-    Array.isArray(d.entries) &&
-    d.entries.every(
-      (e) => Number.isFinite(e?.timestamp) && Number.isFinite(e?.kg) && Number.isFinite(e?.lb) && (e?.entered === 'kg' || e?.entered === 'lb'),
-    ) &&
-    (d.foods === undefined ||
-      (Array.isArray(d.foods) &&
-        d.foods.every(
-          (f) =>
-            Number.isFinite(f?.timestamp) &&
-            typeof f?.text === 'string' &&
-            (f.category === undefined || categoryFromText(f.category) !== null),
-        ))) &&
-    (d.exercises === undefined ||
-      (Array.isArray(d.exercises) &&
-        d.exercises.every(
-          (x) =>
-            Number.isFinite(x?.timestamp) &&
-            typeof x?.name === 'string' &&
-            x.name.trim().length > 0 &&
-            exerciseCategoryFromText(x.category) !== null &&
-            validMinutes(x.minutes),
-        )));
-  if (!ok) throw new Error('Invalid user record');
-  return d as UserData;
 }

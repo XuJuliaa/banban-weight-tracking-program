@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCsvRows, parseExerciseCsv, parseFoodCsv, parseTimestamp, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import { mergeNew, parseCsvRows, parseExerciseCsv, parseFoodCsv, parseTimestamp, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
 import type { UserData } from './types';
 
 describe('parseTimestamp', () => {
@@ -167,3 +167,19 @@ describe('exercise CSV', () => {
   });
 });
 
+
+describe('mergeNew', () => {
+  it('keeps only rows not already logged, and drops repeats within the file', () => {
+    const existing = [{ timestamp: 1, text: 'a' }];
+    const rows = [
+      { timestamp: 1, text: 'a' }, // already logged
+      { timestamp: 1, text: 'b' }, // same time, different food
+      { timestamp: 2, text: 'c' },
+      { timestamp: 2, text: 'c' }, // repeated in the file
+    ];
+    expect(mergeNew(existing, rows, (f) => `${f.timestamp}|${f.text}`)).toEqual([
+      { timestamp: 1, text: 'b' },
+      { timestamp: 2, text: 'c' },
+    ]);
+  });
+});
