@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysInRange, linearTrend, loggingFrequency30d, movingAverage10d, movingAverageSeries, trendChange, trendSentence, weightSeries } from './stats';
+import { daysInRange, daysToUnlock, linearTrend, loggingFrequency30d, movingAverage10d, movingAverageSeries, trendChange, trendSentence, weightSeries } from './stats';
 import type { WeightPoint } from './types';
 
 // "Now" is 2026-10-11 at 12:00 local time. Months are 0-based in Date.
@@ -62,6 +62,28 @@ describe('loggingFrequency30d', () => {
   it('computes the percentage', () => {
     const entries = Array.from({ length: 15 }, (_, i) => entry(11 - i, 8, 60));
     expect(loggingFrequency30d(entries, NOW)).toEqual({ daysLogged: 15, totalDays: 30, pct: 50 });
+  });
+});
+
+describe('daysToUnlock', () => {
+  // One weigh-in on each of the last `n` days, Oct 11 backwards (day 0 and below roll into September).
+  const loggedDays = (n: number) => Array.from({ length: n }, (_, i) => entry(11 - i, 8, 60));
+  const missing = (entries: WeightPoint[]) => daysToUnlock(loggingFrequency30d(entries, NOW));
+
+  it('unlocks at exactly 80% (24 of 30 days) and above', () => {
+    expect(missing(loggedDays(24))).toBe(0);
+    expect(missing(loggedDays(30))).toBe(0);
+  });
+
+  it('counts the days still needed below 80%', () => {
+    expect(missing(loggedDays(23))).toBe(1);
+    expect(missing(loggedDays(19))).toBe(5);
+    expect(missing([])).toBe(24);
+  });
+
+  it('counts a day with several weigh-ins once', () => {
+    const entries = [...loggedDays(23), entry(11, 20, 61), entry(11, 21, 62)];
+    expect(missing(entries)).toBe(1);
   });
 });
 

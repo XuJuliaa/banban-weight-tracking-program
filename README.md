@@ -48,6 +48,7 @@ npm run dev        # serves http://localhost:5173
 - **Log a weight.** Type the number and press Enter. The timestamp comes from the device.
 - **10-day average.** The average over the last 10 calendar days, today included. Several weigh-ins on one day are averaged first, so each day counts once.
 - **30-day logging frequency.** The share of the past 30 calendar days with at least one weigh-in, e.g. "70%" (21 of 30 days).
+- **Food and exercise unlock at 80%.** The food and exercise sections stay greyed out until at least 80% of the past 30 days (24 days) have a weigh-in, with a note saying how many more days are needed.
 - **Weight trend chart.** One chart with three lines:
   - every weigh-in, as dots joined by a thin line
   - the 10-day average, as a smooth black line

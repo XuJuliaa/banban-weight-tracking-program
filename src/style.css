@@ -372,6 +372,12 @@ button.danger { background: transparent; color: var(--danger); border-color: var
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 420px) { .stats { grid-template-columns: 1fr; } }
 
+/* Food and exercise are greyed out and inert until 80% of the last 30 days have a weigh-in. */
+.food-exercise, .lockable { display: grid; gap: 16px; }
+.lockable.is-locked { opacity: 0.45; filter: grayscale(0.6); user-select: none; }
+.lock-note { margin: 0; border-color: var(--accent); }
+.lock-note strong { color: var(--accent); }
+
 .stat { display: flex; flex-direction: column; gap: 4px; }
 .stat-label { color: var(--muted); font-size: 0.9rem; }
 .stat-value { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
