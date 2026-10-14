@@ -81,9 +81,7 @@ export const dom = {
   foodTableBody: el<HTMLTableSectionElement>('food-table-body'),
   foodEmpty: el<HTMLParagraphElement>('food-empty'),
   foodList: el<HTMLDivElement>('food-list'),
-  exportCsvBtn: el<HTMLButtonElement>('export-csv-btn'),
-  exportFoodCsvBtn: el<HTMLButtonElement>('export-food-csv-btn'),
-  exportExerciseCsvBtn: el<HTMLButtonElement>('export-exercise-csv-btn'),
+  exportBtn: el<HTMLButtonElement>('export-btn'),
   exerciseForm: el<HTMLFormElement>('exercise-form'),
   exerciseName: el<HTMLInputElement>('exercise-name'),
   exerciseCategory: el<HTMLSelectElement>('exercise-category'),
@@ -104,8 +102,6 @@ export const dom = {
   folderFiles: el<HTMLUListElement>('folder-files'),
   importBtn: el<HTMLButtonElement>('import-btn'),
   importFile: el<HTMLInputElement>('import-file'),
-  importFoodBtn: el<HTMLButtonElement>('import-food-btn'),
-  importExerciseBtn: el<HTMLButtonElement>('import-exercise-btn'),
   folderActions: el<HTMLDivElement>('folder-actions'),
   chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
   reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
@@ -124,6 +120,7 @@ export const dom = {
   overrideWeight: el<HTMLInputElement>('override-weight'),
   overrideUnit: el<HTMLSpanElement>('override-unit'),
   overrideCurrent: el<HTMLParagraphElement>('override-current'),
+  exportDialog: el<HTMLDialogElement>('export-dialog'),
   confirmDialog: el<HTMLDialogElement>('confirm-dialog'),
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
@@ -531,6 +528,22 @@ export function confirmChange(opts: { title: string; message: string; lines?: st
   dom.confirmDialog.showModal();
   return new Promise((resolve) => {
     dom.confirmDialog.addEventListener('close', () => resolve(dom.confirmDialog.returnValue === 'confirm'), { once: true });
+  });
+}
+
+/** Asks how to export: one .zip or three CSV files. Null when cancelled. */
+export function chooseExport(): Promise<'zip' | 'csv' | null> {
+  dom.exportDialog.returnValue = '';
+  dom.exportDialog.showModal();
+  return new Promise((resolve) => {
+    dom.exportDialog.addEventListener(
+      'close',
+      () => {
+        const value = dom.exportDialog.returnValue;
+        resolve(value === 'zip' || value === 'csv' ? value : null);
+      },
+      { once: true },
+    );
   });
 }
 

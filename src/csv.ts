@@ -108,20 +108,6 @@ export function toWeightCsv(user: UserData): string {
   return ['timestamp,weight_kg,weight_lb,entered_unit', ...rows].join('\n') + '\n';
 }
 
-/**
- * The rows that aren't already logged: a row is skipped when `key` matches an existing entry or an
- * earlier row of the same file.
- */
-export function mergeNew<E, R>(existing: E[], rows: R[], key: (item: E | R) => string): R[] {
-  const seen = new Set(existing.map(key));
-  return rows.filter((r) => {
-    const k = key(r);
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-}
-
 /** Quotes a CSV field when it contains a comma, quote, or line break. */
 export function csvField(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;

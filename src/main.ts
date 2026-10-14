@@ -11,7 +11,8 @@ import {
   loadUserFromFiles,
   setSyncErrorHandler,
 } from './storage';
-import { mergeNew, parseExerciseCsv, parseFoodCsv, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import { toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import { type DataKind, planImport, unzipCsvs, zipFiles } from './backup';
 import {
   chooseFolder,
   closeAccount,
@@ -40,6 +41,7 @@ import { overrideDay } from './edits';
 import { initThemePicker } from './theme';
 import { makeEntry } from './units';
 import {
+  chooseExport,
   confirmChange,
   dom,
   formatEntry,
@@ -673,99 +675,121 @@ dom.unitToggle.addEventListener('click', async (event) => {
   await saveUser(current);
 });
 
-/** Saves `csv` as e.g. "weight-Juju-2026-10-12.csv", "food-…" or "exercise-…". */
-function downloadCsv(csv: string, kind: 'weight' | 'food' | 'exercise'): void {
-  if (!current) return;
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+/** Starts a download of `blob` as `fileName`. */
+function download(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const date = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.download = `${kind}-${current.name.replace(/[^\w-]+/g, '_')}-${date}.csv`;
+  link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
 }
 
-dom.exportCsvBtn.addEventListener('click', () => current && downloadCsv(toWeightCsv(current), 'weight'));
-dom.exportFoodCsvBtn.addEventListener('click', () => current && downloadCsv(toFoodCsv(current), 'food'));
-dom.exportExerciseCsvBtn.addEventListener('click', () => current && downloadCsv(toExerciseCsv(current), 'exercise'));
+/**
+ * Exports all three logs, as one "Juju-data-2026-10-14.zip" or as three CSVs ("weight-Juju-2026-10-14.csv",
+ * "food-…", "exercise-…"). Every file is included even when empty, so the export imports back as is.
+ */
+dom.exportBtn.addEventListener('click', async () => {
+  if (!current) return;
+  const choice = await chooseExport();
+  if (!choice || !current) return;
+  const name = current.name.replace(/[^\w-]+/g, '_');
+  const date = new Date().toISOString().slice(0, 10);
+  const files: Record<string, string> = {
+    [`weight-${name}-${date}.csv`]: toWeightCsv(current),
+    [`food-${name}-${date}.csv`]: toFoodCsv(current),
+    [`exercise-${name}-${date}.csv`]: toExerciseCsv(current),
+  };
+  if (choice === 'zip') {
+    download(new Blob([zipFiles(files) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), `${name}-data-${date}.zip`);
+    return;
+  }
+  // Browsers drop downloads started at the same instant, so space them out.
+  for (const [fileName, csv] of Object.entries(files)) {
+    download(new Blob([csv], { type: 'text/csv' }), fileName);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+});
 
-type ImportKind = 'weight' | 'food' | 'exercise';
-const IMPORT_NOUN: Record<ImportKind, [string, string]> = {
+const IMPORT_NOUN: Record<DataKind, [string, string]> = {
   weight: ['weigh-in', 'weigh-ins'],
   food: ['food entry', 'food entries'],
   exercise: ['exercise session', 'exercise sessions'],
 };
+const KIND_LABEL: Record<DataKind, string> = { weight: 'Weight', food: 'Food', exercise: 'Exercise' };
+
+/** The CSV files picked: each .csv as is, or the CSVs inside a single exported .zip. */
+async function readPicked(picked: File[]): Promise<{ files: { name: string; text: string }[]; ignored: string[] }> {
+  const zips = picked.filter((f) => /\.zip$/i.test(f.name) || f.type === 'application/zip');
+  const csvs = picked.filter((f) => /\.csv$/i.test(f.name) || f.type === 'text/csv');
+  const ignored = picked.filter((f) => !zips.includes(f) && !csvs.includes(f)).map((f) => `${f.name} (not a CSV or zip file)`);
+  if (zips.length && (zips.length > 1 || csvs.length)) throw new Error('Pick one .zip file, or up to three CSV files.');
+  if (zips.length) {
+    const files = unzipCsvs(new Uint8Array(await zips[0].arrayBuffer()));
+    if (!files.length) throw new Error(`${zips[0].name} has no CSV files in it.`);
+    return { files, ignored };
+  }
+  return { files: await Promise.all(csvs.map(async (f) => ({ name: f.name, text: await f.text() }))), ignored };
+}
 
 /**
- * Rows from an exported CSV, added to the selected profile after a confirmation. Rows already logged
- * (same time; for food and exercise also the same text) are skipped, so importing twice adds nothing.
+ * Replaces the current profile's weight, food and/or exercise data with the picked files, one file per
+ * kind (or an exported .zip), after one confirmation. Kinds without a file are left as they are.
  */
-async function importCsv(kind: ImportKind, text: string, fileName: string): Promise<void> {
+async function importFiles(picked: File[]): Promise<void> {
   if (!current) {
-    showToast('Create or select a profile first, then import the CSV');
+    showToast('Create or select a profile first, then import your data');
     return;
   }
   const user = current;
-  let total: number;
-  let skipped: number[] = [];
-  let add: () => void;
-  let count: number;
-  if (kind === 'weight') {
-    const parsed = parseWeightCsv(text, user.unit);
-    skipped = parsed.skipped;
-    total = parsed.entries.length;
-    const fresh = mergeNew(user.entries, parsed.entries, (e) => String(e.timestamp));
-    count = fresh.length;
-    add = () => user.entries.push(...fresh.map((e) => ({ id: crypto.randomUUID(), ...e })));
-  } else if (kind === 'food') {
-    const rows = parseFoodCsv(text);
-    total = rows.length;
-    const fresh = mergeNew(user.foods ?? [], rows, (f) => `${f.timestamp}|${f.text}`);
-    count = fresh.length;
-    add = () => (user.foods = [...(user.foods ?? []), ...fresh.map((f) => ({ id: crypto.randomUUID(), ...f }))]);
-  } else {
-    const rows = parseExerciseCsv(text);
-    total = rows.length;
-    const fresh = mergeNew(user.exercises ?? [], rows, (x) => `${x.timestamp}|${x.name}`);
-    count = fresh.length;
-    add = () => (user.exercises = [...(user.exercises ?? []), ...fresh.map((x) => ({ id: crypto.randomUUID(), ...x }))]);
-  }
-
-  const [one, many] = IMPORT_NOUN[kind];
-  const noun = (n: number) => `${n} ${n === 1 ? one : many}`;
-  const notes = [
-    total > count ? `${total - count} already logged` : '',
-    skipped.length ? `${skipped.length} unreadable (line ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? ', …' : ''})` : '',
-  ].filter(Boolean);
-  if (count === 0) {
-    showToast(`Nothing new to add from ${fileName}${notes.length ? ` (${notes.join('; ')})` : ''}`);
+  const { files, ignored } = await readPicked(picked);
+  const plan = planImport(files, user.unit);
+  const skipped = [...ignored, ...plan.ignored.map((i) => `${i.fileName} (${i.reason})`)];
+  const noun = (kind: DataKind, n: number) => `${n} ${n === 1 ? IMPORT_NOUN[kind][0] : IMPORT_NOUN[kind][1]}`;
+  const currentCounts: Record<DataKind, number> = {
+    weight: user.entries.length,
+    food: user.foods?.length ?? 0,
+    exercise: user.exercises?.length ?? 0,
+  };
+  const kinds = (['weight', 'food', 'exercise'] as const).filter((k) => plan[k]);
+  if (!kinds.length) {
+    showToast(`Nothing to import${skipped.length ? `: ${skipped.join('; ')}` : ''}`);
     return;
   }
-  const question = `Add ${noun(count)} from ${fileName} to "${user.name}"?`;
-  if (!confirm(notes.length ? `${question}\n\nSkipping: ${notes.join('; ')}.` : question)) return;
-  add();
+
+  const lines = kinds.map((k) => {
+    const part = plan[k]!;
+    const replaceWith = part.rows.length ? `with ${noun(k, part.rows.length)}` : 'with nothing (it will be emptied)';
+    const unreadable = part.unreadable.length ? `, skipping ${part.unreadable.length} unreadable line(s)` : '';
+    return `${KIND_LABEL[k]}: replace ${noun(k, currentCounts[k])} ${replaceWith} from ${part.fileName}${unreadable}`;
+  });
+  const kept = (['weight', 'food', 'exercise'] as const).filter((k) => !plan[k]).map((k) => KIND_LABEL[k].toLowerCase());
+  if (kept.length) lines.push(`Unchanged: ${kept.join(' and ')}`);
+  if (skipped.length) lines.push(`Not imported: ${skipped.join('; ')}`);
+  const ok = await confirmChange({
+    title: `Replace data for "${user.name}"?`,
+    message: 'Importing will:',
+    lines,
+    warning: 'This overwrites the current entries. Export first if you want a backup.',
+    confirmLabel: 'Replace',
+  });
+  if (!ok || current !== user) return;
+
+  if (plan.weight) user.entries = plan.weight.rows.map((e) => ({ id: crypto.randomUUID(), ...e }));
+  if (plan.food) user.foods = plan.food.rows.map((f) => ({ id: crypto.randomUUID(), ...f }));
+  if (plan.exercise) user.exercises = plan.exercise.rows.map((x) => ({ id: crypto.randomUUID(), ...x }));
   await saveUser(user);
   render();
-  showToast(`Added ${noun(count)} to "${user.name}"`);
+  showToast(`Replaced ${kinds.map((k) => KIND_LABEL[k].toLowerCase()).join(', ')} for "${user.name}"`);
 }
 
-let importKind: ImportKind = 'weight';
-for (const button of [dom.importBtn, dom.importFoodBtn, dom.importExerciseBtn]) {
-  button.addEventListener('click', () => {
-    importKind = button.dataset.import as ImportKind;
-    dom.importFile.click();
-  });
-}
+dom.importBtn.addEventListener('click', () => dom.importFile.click());
 dom.importFile.addEventListener('change', async () => {
-  const file = dom.importFile.files?.[0];
+  const picked = [...(dom.importFile.files ?? [])];
   dom.importFile.value = '';
-  if (!file) return;
+  if (!picked.length) return;
   try {
-    if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') {
-      showToast('Choose a .csv file');
-      return;
-    }
-    await importCsv(importKind, await file.text(), file.name);
+    await importFiles(picked);
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Import failed');
   }
