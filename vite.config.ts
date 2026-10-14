@@ -9,8 +9,8 @@ const REPO_BASE = '/banban-weight-tracking-program/';
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? REPO_BASE : '/',
   plugins: [
-    // Writes each profile's CSV files to ./userdata while running npm run dev / preview.
-    userdataPlugin(fileURLToPath(new URL('./userdata', import.meta.url))),
+    // Writes each profile's CSV files to ./testdata while running npm run dev / preview.
+    userdataPlugin(fileURLToPath(new URL('./testdata', import.meta.url))),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],

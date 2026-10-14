@@ -1,9 +1,9 @@
 // Fills a profile's exercise log with 60 days of made-up sessions, for trying the Exercise charts.
-// Writes straight into userdata/<slug>-exercise.csv (timestamp,activity,category,minutes); no JSON involved.
+// Writes straight into testdata/<slug>-exercise.csv (timestamp,activity,category,minutes); no JSON involved.
 //
 //   node scripts/generate-exercise-data.mts [profile-slug]     (default: juju)
 //
-// If the file already exists it is copied to userdata/.migrated/<slug>-exercise.before-test-data.csv
+// If the file already exists it is copied to testdata/.migrated/<slug>-exercise.before-test-data.csv
 // first, and its rows are kept. Re-running doesn't duplicate rows.
 
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -15,7 +15,7 @@ import type { ExerciseEntry } from '../src/types.ts';
 
 const DAYS = 60;
 const slug = process.argv[2] ?? 'juju';
-const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'userdata');
+const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'testdata');
 const file = join(dir, `${slug}-exercise.csv`);
 
 // mulberry32: small seeded PRNG returning [0, 1).

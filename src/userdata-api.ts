@@ -1,5 +1,5 @@
 // Where profile CSV files are read from and written to. In order of preference:
-//   1. the local save service (server/userdata-plugin.ts), which keeps userdata/<slug>-*.csv;
+//   1. the local save service (server/userdata-plugin.ts), which keeps testdata/<slug>-*.csv;
 //      it only exists under npm run dev / preview;
 //   2. a folder the user picked in the browser (src/folder-store.ts), on a hosted site;
 //   3. the user's Google Drive (src/drive-store.ts), on a hosted site, in any browser.
@@ -80,7 +80,7 @@ function updateStatus(): void {
 }
 
 export const userdataStatus = () => status;
-/** The data folder: the absolute userdata/ path for the local service, a picked folder's name, or the Drive folder. */
+/** The data folder: the absolute testdata/ path for the local service, a picked folder's name, or the Drive folder. */
 export const userdataPath = () =>
   service === 'connected' ? servicePath
   : folder ? folder.name
@@ -256,7 +256,7 @@ export async function reconnectFolder(): Promise<boolean> {
   return folderAccess;
 }
 
-/** True when the local save service (npm run dev / preview) is there; then the data folder is always userdata/. */
+/** True when the local save service (npm run dev / preview) is there; then the data folder is always testdata/. */
 export async function localService(): Promise<boolean> {
   await call(undefined).catch(() => null);
   return service === 'connected';
@@ -266,7 +266,7 @@ export async function localService(): Promise<boolean> {
 export const pickAccountFolder = pickFolder;
 
 /**
- * A profile's data from its files before logging in: from userdata/ when running locally, else from `handle`
+ * A profile's data from its files before logging in: from testdata/ when running locally, else from `handle`
  * (a folder picked at login). Null when it has no files or there's nowhere to look.
  */
 export async function findProfileData(name: string, handle?: FileSystemDirectoryHandle | null): Promise<FileProfileData | null> {

@@ -1,7 +1,7 @@
 import type { WeightPoint } from './types.ts';
 
 export const MOVING_AVERAGE_DAYS = 10;
-export const FREQUENCY_DAYS = 60;
+export const FREQUENCY_DAYS = 30;
 
 /** Local calendar date key, e.g. "2026-10-11". */
 export function dayKey(timestamp: number): string {
@@ -56,8 +56,8 @@ export interface LoggingFrequency {
   pct: number;
 }
 
-/** How many of the last 60 calendar days (today included) have at least one entry. */
-export function loggingFrequency60d(entries: WeightPoint[], now: number): LoggingFrequency {
+/** How many of the last 30 calendar days (today included) have at least one entry. */
+export function loggingFrequency30d(entries: WeightPoint[], now: number): LoggingFrequency {
   const days = new Set(entriesInWindow(entries, now, FREQUENCY_DAYS).map((e) => dayKey(e.timestamp)));
   return {
     daysLogged: days.size,

@@ -64,7 +64,7 @@ export interface ProfileSummary {
   name: string;
 }
 
-/** A profile as stored in the userdata/ CSV files (no browser id). */
+/** A profile as stored in the testdata/ CSV files (no browser id). */
 export interface FileProfile {
   slug: string;
   name: string;

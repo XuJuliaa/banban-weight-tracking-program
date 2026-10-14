@@ -8,12 +8,12 @@ const PROFILES_KEY = 'profiles';
 
 let onSyncError: (err: unknown) => void = (err) => console.error(err);
 
-/** Called when a save reached the browser database but the userdata/ CSV files could not be updated. */
+/** Called when a save reached the browser database but the testdata/ CSV files could not be updated. */
 export function setSyncErrorHandler(handler: (err: unknown) => void): void {
   onSyncError = handler;
 }
 
-/** Runs a userdata/ write; a failure is reported but never loses the browser save. */
+/** Runs a testdata/ write; a failure is reported but never loses the browser save. */
 async function mirror(task: () => Promise<void>): Promise<void> {
   try {
     await task();
@@ -40,7 +40,7 @@ export async function findProfileByName(name: string): Promise<ProfileSummary | 
   return (await listProfiles()).find((p) => profileSlug(p.name) === slug);
 }
 
-/** Stores a profile loaded from userdata/ in this browser, reusing the browser's id if it already has it. */
+/** Stores a profile loaded from testdata/ in this browser, reusing the browser's id if it already has it. */
 async function storeFromFiles(data: FileProfileData, userId: string, updatedAt?: number): Promise<UserData> {
   const user: UserData = {
     version: 1,
@@ -58,7 +58,7 @@ async function storeFromFiles(data: FileProfileData, userId: string, updatedAt?:
 }
 
 /**
- * Creates a profile, unless one with the same name exists here or in userdata/:
+ * Creates a profile, unless one with the same name exists here or in testdata/:
  * then that one is returned with `existed: true` instead of making a duplicate.
  */
 export async function createProfile(name: string, unit: WeightUnit): Promise<{ user: UserData; existed: boolean }> {
@@ -75,7 +75,7 @@ export async function createProfile(name: string, unit: WeightUnit): Promise<{ u
 }
 
 /**
- * Brings this browser's profile list in line with userdata/: profiles that exist only as files are added,
+ * Brings this browser's profile list in line with testdata/: profiles that exist only as files are added,
  * and profiles that exist only here are written out. Does nothing when the save service isn't available.
  */
 export async function syncProfileListFromFiles(): Promise<void> {
@@ -100,7 +100,7 @@ export async function syncProfileListFromFiles(): Promise<void> {
 }
 
 /**
- * Loads a profile's latest data from userdata/ (the files win over this browser's copy).
+ * Loads a profile's latest data from testdata/ (the files win over this browser's copy).
  * If it has no files yet they are written from this copy. Without the save service, returns `user` unchanged.
  */
 export async function loadUserFromFiles(user: UserData): Promise<UserData> {
@@ -127,7 +127,7 @@ export async function loadUser(userId: string): Promise<UserData | undefined> {
   return { ...user, entries };
 }
 
-/** Writes the user's whole record, keeps the profile list in sync, and writes their userdata/ CSV files. */
+/** Writes the user's whole record, keeps the profile list in sync, and writes their testdata/ CSV files. */
 export async function saveUser(data: UserData): Promise<void> {
   data.updatedAt = Date.now();
   await set(userKey(data.userId), data);

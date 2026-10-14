@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { listProfiles, readProfile, removeProfile, type TextStore, validateUser, writeProfile } from './profile-files';
 
-/** A folder kept in memory, standing in for userdata/ or a folder picked in the browser. */
+/** A folder kept in memory, standing in for testdata/ or a folder picked in the browser. */
 function memoryStore(initial: Record<string, string> = {}): TextStore & { files: Map<string, string> } {
   const files = new Map(Object.entries(initial));
   return {
@@ -23,7 +23,7 @@ const juju = {
 };
 
 describe('profile files over any TextStore', () => {
-  it('writes the same layout as userdata/ and reads it back', async () => {
+  it('writes the same layout as testdata/ and reads it back', async () => {
     const store = memoryStore();
     expect(await writeProfile(store, juju)).toBe('juju');
     expect([...store.files.keys()].sort()).toEqual(['juju-exercise.csv', 'juju-food.csv', 'juju-weight.csv', 'profiles.csv']);

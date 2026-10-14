@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loggingFrequency60d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
+import { loggingFrequency30d, movingAverage10d, movingAverageSeries, weightSeries } from './stats';
 import type { WeightPoint } from './types';
 
 // "Now" is 2026-10-11 at 12:00 local time. Months are 0-based in Date.
@@ -43,25 +43,25 @@ describe('movingAverage10d', () => {
   });
 });
 
-describe('loggingFrequency60d', () => {
+describe('loggingFrequency30d', () => {
   it('reports zero with no entries', () => {
-    expect(loggingFrequency60d([], NOW)).toEqual({ daysLogged: 0, totalDays: 60, pct: 0 });
+    expect(loggingFrequency30d([], NOW)).toEqual({ daysLogged: 0, totalDays: 30, pct: 0 });
   });
 
   it('counts each day once, however many entries it has', () => {
     const entries = [entry(11, 7, 60), entry(11, 9, 60), entry(10, 8, 60)];
-    expect(loggingFrequency60d(entries, NOW).daysLogged).toBe(2);
+    expect(loggingFrequency30d(entries, NOW).daysLogged).toBe(2);
   });
 
-  it('includes the first day of the 60-day window and excludes the day before it', () => {
-    // The window is Aug 13 – Oct 11.
-    const entries = [entry(13, 0, 60, 7), entry(12, 23, 60, 7)];
-    expect(loggingFrequency60d(entries, NOW).daysLogged).toBe(1);
+  it('includes the first day of the 30-day window and excludes the day before it', () => {
+    // The window is Sep 12 – Oct 11.
+    const entries = [entry(12, 0, 60, 8), entry(11, 23, 60, 8)];
+    expect(loggingFrequency30d(entries, NOW).daysLogged).toBe(1);
   });
 
   it('computes the percentage', () => {
-    const entries = Array.from({ length: 30 }, (_, i) => entry(11 - i, 8, 60));
-    expect(loggingFrequency60d(entries, NOW)).toEqual({ daysLogged: 30, totalDays: 60, pct: 50 });
+    const entries = Array.from({ length: 15 }, (_, i) => entry(11 - i, 8, 60));
+    expect(loggingFrequency30d(entries, NOW)).toEqual({ daysLogged: 15, totalDays: 30, pct: 50 });
   });
 });
 
