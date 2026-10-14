@@ -134,10 +134,14 @@
             </div>
           </div>
           <figure class="chart" id="chart-figure">
-            <figcaption id="chart-title"></figcaption>
+            <div class="chart-head">
+              <figcaption id="chart-title"></figcaption>
+              <p class="trend-summary" id="trend-summary" aria-live="polite"></p>
+            </div>
             <div class="chart-legend">
               <span><i class="chart-swatch series-weight"></i>Weight (each entry)</span>
               <span><i class="chart-swatch series-average"></i>10-day average</span>
+              <span><i class="chart-swatch series-trend"></i>Trend</span>
             </div>
             <div class="chart-host" id="chart-host"></div>
             <details class="chart-data">
@@ -175,141 +179,146 @@
         </section>
 
 
-        <section class="card input-card">
-          <h2>Food log</h2>
-          <form id="food-form" class="food-form">
-            <label class="visually-hidden" for="food-input">What did you eat?</label>
-            <input
-              id="food-input"
-              type="text"
-              maxlength="200"
-              required
-              autocomplete="off"
-              placeholder="What did you eat? e.g. oatmeal with berries"
-            />
-            <label class="visually-hidden" for="food-category">Category</label>
-            <select id="food-category" required>
-              <option value="" disabled selected>Category</option>
-              <option value="protein">Protein</option>
-              <option value="produce">Vegetables &amp; fruit</option>
-              <option value="grains">Grains &amp; starches</option>
-              <option value="dairy">Dairy</option>
-              <option value="snacks">Snacks &amp; sweets</option>
-              <option value="drinks">Drinks</option>
-            </select>
-            <button type="submit">Log food</button>
-          </form>
-          <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
-          <p class="muted small" id="food-empty">Nothing logged today yet.</p>
-          <div class="food-list" id="food-list"></div>
-        </section>
+        <div class="food-exercise" id="food-exercise">
+          <p class="card lock-note" id="lock-note" role="status" hidden></p>
+          <div class="lockable" id="food-exercise-cards">
+            <section class="card input-card">
+              <h2>Food log</h2>
+              <form id="food-form" class="food-form">
+                <label class="visually-hidden" for="food-input">What did you eat?</label>
+                <input
+                  id="food-input"
+                  type="text"
+                  maxlength="200"
+                  required
+                  autocomplete="off"
+                  placeholder="What did you eat? e.g. oatmeal with berries"
+                />
+                <label class="visually-hidden" for="food-category">Category</label>
+                <select id="food-category" required>
+                  <option value="" disabled selected>Category</option>
+                  <option value="protein">Protein</option>
+                  <option value="produce">Vegetables &amp; fruit</option>
+                  <option value="grains">Grains &amp; starches</option>
+                  <option value="dairy">Dairy</option>
+                  <option value="snacks">Snacks &amp; sweets</option>
+                  <option value="drinks">Drinks</option>
+                </select>
+                <button type="submit">Log food</button>
+              </form>
+              <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
+              <p class="muted small" id="food-empty">Nothing logged today yet.</p>
+              <div class="food-list" id="food-list"></div>
+            </section>
 
-        <section class="card plot-card" id="food-viz-card">
-          <div class="plot-header">
-            <h2>Food breakdown</h2>
-            <div class="range-row">
-              <label>From <input type="date" id="food-range-start" /></label>
-              <label>To <input type="date" id="food-range-end" /></label>
-            </div>
-          </div>
-          <div class="plot-controls">
-            <div class="button-row presets" role="group" aria-label="Quick date ranges for the food chart">
-              <button type="button" class="chip" data-food-range="7">7 days</button>
-              <button type="button" class="chip" data-food-range="30">30 days</button>
-              <button type="button" class="chip" data-food-range="90">90 days</button>
-              <button type="button" class="chip" data-food-range="all">All time</button>
-            </div>
-            <p class="muted small pie-detail" id="food-pie-detail" aria-live="polite"></p>
-          </div>
-          <div class="food-pie" id="food-pie"></div>
-          <details class="chart-data food-data">
-            <summary id="food-table-summary">Show data table</summary>
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Food</th>
-                  <th scope="col">Category</th>
-                </tr>
-              </thead>
-              <tbody id="food-table-body"></tbody>
-            </table>
-          </details>
-        </section>
+            <section class="card plot-card" id="food-viz-card">
+              <div class="plot-header">
+                <h2>Food breakdown</h2>
+                <div class="range-row">
+                  <label>From <input type="date" id="food-range-start" /></label>
+                  <label>To <input type="date" id="food-range-end" /></label>
+                </div>
+              </div>
+              <div class="plot-controls">
+                <div class="button-row presets" role="group" aria-label="Quick date ranges for the food chart">
+                  <button type="button" class="chip" data-food-range="7">7 days</button>
+                  <button type="button" class="chip" data-food-range="30">30 days</button>
+                  <button type="button" class="chip" data-food-range="90">90 days</button>
+                  <button type="button" class="chip" data-food-range="all">All time</button>
+                </div>
+                <p class="muted small pie-detail" id="food-pie-detail" aria-live="polite"></p>
+              </div>
+              <div class="food-pie" id="food-pie"></div>
+              <details class="chart-data food-data">
+                <summary id="food-table-summary">Show data table</summary>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Food</th>
+                      <th scope="col">Category</th>
+                    </tr>
+                  </thead>
+                  <tbody id="food-table-body"></tbody>
+                </table>
+              </details>
+            </section>
 
-        <section class="card input-card">
-          <h2>Exercise log</h2>
-          <form id="exercise-form" class="food-form exercise-form">
-            <label class="visually-hidden" for="exercise-name">What did you do?</label>
-            <input
-              id="exercise-name"
-              type="text"
-              maxlength="100"
-              required
-              autocomplete="off"
-              placeholder="What did you do? e.g. morning run"
-            />
-            <label class="visually-hidden" for="exercise-category">Category</label>
-            <select id="exercise-category" required>
-              <option value="" disabled selected>Category</option>
-              <option value="cardio">Cardio</option>
-              <option value="strength">Strength</option>
-              <option value="flexibility">Flexibility</option>
-            </select>
-            <span class="exercise-minutes">
-              <label class="visually-hidden" for="exercise-minutes">Duration in minutes</label>
-              <input id="exercise-minutes" type="number" min="1" max="1440" step="1" inputmode="numeric" required placeholder="30" />
-              <span class="unit">min</span>
-            </span>
-            <button type="submit">Log exercise</button>
-          </form>
-          <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
-          <p class="muted small" id="exercise-empty">No exercise logged today yet.</p>
-          <div class="food-list" id="exercise-list"></div>
-        </section>
+            <section class="card input-card">
+              <h2>Exercise log</h2>
+              <form id="exercise-form" class="food-form exercise-form">
+                <label class="visually-hidden" for="exercise-name">What did you do?</label>
+                <input
+                  id="exercise-name"
+                  type="text"
+                  maxlength="100"
+                  required
+                  autocomplete="off"
+                  placeholder="What did you do? e.g. morning run"
+                />
+                <label class="visually-hidden" for="exercise-category">Category</label>
+                <select id="exercise-category" required>
+                  <option value="" disabled selected>Category</option>
+                  <option value="cardio">Cardio</option>
+                  <option value="strength">Strength</option>
+                  <option value="flexibility">Flexibility</option>
+                </select>
+                <span class="exercise-minutes">
+                  <label class="visually-hidden" for="exercise-minutes">Duration in minutes</label>
+                  <input id="exercise-minutes" type="number" min="1" max="1440" step="1" inputmode="numeric" required placeholder="30" />
+                  <span class="unit">min</span>
+                </span>
+                <button type="submit">Log exercise</button>
+              </form>
+              <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
+              <p class="muted small" id="exercise-empty">No exercise logged today yet.</p>
+              <div class="food-list" id="exercise-list"></div>
+            </section>
 
-        <section class="card plot-card" id="exercise-card">
-          <div class="plot-header">
-            <h2>Exercise</h2>
-            <div class="range-row">
-              <label>From <input type="date" id="exercise-range-start" /></label>
-              <label>To <input type="date" id="exercise-range-end" /></label>
-            </div>
+            <section class="card plot-card" id="exercise-card">
+              <div class="plot-header">
+                <h2>Exercise</h2>
+                <div class="range-row">
+                  <label>From <input type="date" id="exercise-range-start" /></label>
+                  <label>To <input type="date" id="exercise-range-end" /></label>
+                </div>
+              </div>
+              <div class="plot-controls">
+                <div class="button-row presets" role="group" aria-label="Quick date ranges for the exercise charts">
+                  <button type="button" class="chip" data-exercise-range="7">7 days</button>
+                  <button type="button" class="chip" data-exercise-range="30">30 days</button>
+                  <button type="button" class="chip" data-exercise-range="90">90 days</button>
+                  <button type="button" class="chip" data-exercise-range="all">All time</button>
+                </div>
+              </div>
+              <div class="tabs" role="tablist" aria-label="Exercise views" id="exercise-tabs">
+                <button type="button" role="tab" id="ex-tab-summary" data-tab="summary" aria-controls="exercise-panel" aria-selected="true">Summary</button>
+                <button type="button" role="tab" id="ex-tab-cardio" data-tab="cardio" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-cardio"></i>Cardio</button>
+                <button type="button" role="tab" id="ex-tab-strength" data-tab="strength" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-strength"></i>Strength</button>
+                <button type="button" role="tab" id="ex-tab-flexibility" data-tab="flexibility" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-flexibility"></i>Flexibility</button>
+              </div>
+              <div class="tab-panel" role="tabpanel" id="exercise-panel" aria-labelledby="ex-tab-summary">
+                <p class="muted small exercise-caption" id="exercise-caption" aria-live="polite"></p>
+                <div class="exercise-summary" id="exercise-summary"></div>
+                <div class="chart-host" id="exercise-chart" hidden></div>
+              </div>
+              <details class="chart-data exercise-data">
+                <summary id="exercise-table-summary">Show data table</summary>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Activity</th>
+                      <th scope="col">Category</th>
+                      <th scope="col" class="num">Minutes</th>
+                    </tr>
+                  </thead>
+                  <tbody id="exercise-table-body"></tbody>
+                </table>
+              </details>
+            </section>
           </div>
-          <div class="plot-controls">
-            <div class="button-row presets" role="group" aria-label="Quick date ranges for the exercise charts">
-              <button type="button" class="chip" data-exercise-range="7">7 days</button>
-              <button type="button" class="chip" data-exercise-range="30">30 days</button>
-              <button type="button" class="chip" data-exercise-range="90">90 days</button>
-              <button type="button" class="chip" data-exercise-range="all">All time</button>
-            </div>
-          </div>
-          <div class="tabs" role="tablist" aria-label="Exercise views" id="exercise-tabs">
-            <button type="button" role="tab" id="ex-tab-summary" data-tab="summary" aria-controls="exercise-panel" aria-selected="true">Summary</button>
-            <button type="button" role="tab" id="ex-tab-cardio" data-tab="cardio" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-cardio"></i>Cardio</button>
-            <button type="button" role="tab" id="ex-tab-strength" data-tab="strength" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-strength"></i>Strength</button>
-            <button type="button" role="tab" id="ex-tab-flexibility" data-tab="flexibility" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-flexibility"></i>Flexibility</button>
-          </div>
-          <div class="tab-panel" role="tabpanel" id="exercise-panel" aria-labelledby="ex-tab-summary">
-            <p class="muted small exercise-caption" id="exercise-caption" aria-live="polite"></p>
-            <div class="exercise-summary" id="exercise-summary"></div>
-            <div class="chart-host" id="exercise-chart" hidden></div>
-          </div>
-          <details class="chart-data exercise-data">
-            <summary id="exercise-table-summary">Show data table</summary>
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Activity</th>
-                  <th scope="col">Category</th>
-                  <th scope="col" class="num">Minutes</th>
-                </tr>
-              </thead>
-              <tbody id="exercise-table-body"></tbody>
-            </table>
-          </details>
-        </section>
+        </div>
 
         <section class="quiet-section">
           <h2>Data &amp; backup</h2>

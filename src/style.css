@@ -372,6 +372,12 @@ button.danger { background: transparent; color: var(--danger); border-color: var
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 420px) { .stats { grid-template-columns: 1fr; } }
 
+/* Food and exercise are greyed out and inert until 80% of the last 30 days have a weigh-in. */
+.food-exercise, .lockable { display: grid; gap: 16px; }
+.lockable.is-locked { opacity: 0.45; filter: grayscale(0.6); user-select: none; }
+.lock-note { margin: 0; border-color: var(--accent); }
+.lock-note strong { color: var(--accent); }
+
 .stat { display: flex; flex-direction: column; gap: 4px; }
 .stat-label { color: var(--muted); font-size: 0.9rem; }
 .stat-value { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -449,9 +455,11 @@ button.chip:hover { background: var(--accent-soft); border-color: var(--accent-b
 .chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart-line.series-weight { stroke: var(--series-1); stroke-width: 1.5; stroke-opacity: 0.7; }
 .chart-line.series-average { stroke: var(--series-ink); stroke-width: 2.5; }
+.chart-line.series-trend { stroke: var(--danger); stroke-width: 2.5; stroke-dasharray: 0.1 6; stroke-linecap: round; }
 .chart-dot { stroke: var(--surface); stroke-width: 2; }
 .chart-dot.series-weight, .chart-focus.series-weight { fill: var(--series-1); }
 .chart-dot.series-average, .chart-focus.series-average { fill: var(--series-ink); }
+.chart-focus.series-trend { fill: var(--danger); }
 .chart-focus { stroke: var(--surface); stroke-width: 2; pointer-events: none; }
 .chart-crosshair { stroke: var(--chart-axis); stroke-width: 1; pointer-events: none; }
 .chart-empty { padding: 32px 0; text-align: center; }
@@ -491,6 +499,12 @@ button.chip:hover { background: var(--accent-soft); border-color: var(--accent-b
   background: var(--series-1);
 }
 .chart-swatch.series-average { border-color: var(--series-ink); }
+.chart-swatch.series-trend { border-top-style: dotted; border-top-width: 3px; border-color: var(--danger); }
+/* Chart title on the left, the trend sentence in the top right corner. */
+.chart-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin-bottom: 8px; }
+.chart-head figcaption { margin-bottom: 0; }
+.trend-summary { margin: 0 0 0 auto; max-width: 52ch; text-align: right; font-size: 0.95rem; color: var(--text); }
+.trend-summary strong { color: var(--accent); }
 
 .chart-data { margin-top: 12px; font-size: 0.9rem; }
 .chart-data summary { cursor: pointer; color: var(--muted); }
