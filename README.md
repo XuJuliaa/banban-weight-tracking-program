@@ -203,7 +203,7 @@ On a hosted copy of the app there's no `testdata/` service. The browser saves to
 Browsers only reveal the folder's name to the page, not its full path.
 
 ### Saving to Google Drive
-**Continue with Google** on the login page is a second way in, next to the username login. It signs in with Google and keeps the same CSV files in a **Banban's Weight Tracker Data** folder in that person's own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
+**Continue with Google** on the login page is a second way in, next to the username login. It signs in with Google and keeps the same CSV files in a **BanBan Weight Tracker** folder in that person's own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
 
 - **One profile per Google account**, named from the account's first name (e.g. "Juliet"). If a username profile already has that name, the full name or the email's first part is used instead, so the two never mix. Google profiles can't be opened with a username and weight.
 - **Always Drive.** A Google login saves to Drive even while running locally; `testdata/` is only for username profiles.

@@ -788,7 +788,7 @@ async function loadFromStore(message: string): Promise<void> {
   showToast(message);
 }
 
-/** Signs in to Google (from a click) and saves to the "Banban's Weight Tracker Data" folder in that Drive. */
+/** Signs in to Google (from a click) and saves to the "BanBan Weight Tracker" folder in that Drive. */
 async function useDrive(): Promise<void> {
   try {
     const email = await useGoogleDrive();
@@ -804,7 +804,7 @@ async function pickDrive(): Promise<void> {
   if (userdataStatus() === 'drive-signin' || !current) return useDrive();
   const ok = await confirmChange({
     title: 'Save to Google Drive?',
-    message: `Sign in with Google. Your profiles will be saved as CSV files in a "Banban's Weight Tracker Data" folder in your Drive after every change.`,
+    message: 'Sign in with Google. Your profiles will be saved as CSV files in a "BanBan Weight Tracker" folder in your Drive after every change.',
     lines: [
       'If that folder already has files for a profile with the same name, those files are loaded and replace this browser\'s copy.',
       'Profiles that are only in this browser are written to Drive.',

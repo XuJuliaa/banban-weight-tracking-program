@@ -1,4 +1,4 @@
-// Google Drive as the data folder: the same CSV files, kept in a "Banban's Weight Tracker Data" folder in the user's
+// Google Drive as the data folder: the same CSV files, kept in a "BanBan Weight Tracker" folder in the user's
 // own Drive. Works in any browser, phones included. Everything runs in the page: Google Identity
 // Services signs the user in and hands out a short-lived access token (kept in memory only), and the
 // Drive REST API is called with fetch. The drive.file permission only lets the app see files it created.
@@ -38,7 +38,7 @@ const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const GIS_URL = 'https://accounts.google.com/gsi/client';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-export const DRIVE_FOLDER_NAME = "Banban's Weight Tracker Data";
+export const DRIVE_FOLDER_NAME = 'BanBan Weight Tracker';
 const STATE_KEY = 'driveState';
 
 /** True when this build has a Google client ID (VITE_GOOGLE_CLIENT_ID), so Drive can be offered. */
@@ -157,11 +157,11 @@ export async function driveUser(getToken: GetToken): Promise<{ email: string; di
 }
 
 /** Names the app's Drive folder had before; such a folder is renamed and reused rather than starting a new one. */
-const OLD_FOLDER_NAMES = ['Weight Tracker'];
+const OLD_FOLDER_NAMES = ['Weight Tracker', "Banban's Weight Tracker Data"];
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 /**
- * The app's "Banban's Weight Tracker Data" folder in the user's Drive, created on first use. Returns its id.
+ * The app's "BanBan Weight Tracker" folder in the user's Drive, created on first use. Returns its id.
  * A folder the app made under an older name is renamed and used instead.
  */
 export async function ensureFolder(getToken: GetToken): Promise<string> {
