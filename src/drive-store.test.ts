@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DriveAuthError, driveTextStore, driveUser, ensureFolder } from './drive-store';
+import { DriveAuthError, driveTextStore, driveUser, ensureFolder, nameFolder } from './drive-store';
 
 /** A tiny fake of the Drive REST API: one folder of files, with every request recorded. */
-function fakeDrive(initial: Record<string, string> = {}) {
+function fakeDrive(initial: Record<string, string> = {}, folders: Record<string, string> = {}) {
+  const folderNames = new Map(Object.entries(folders));
   const files = new Map(Object.entries(initial).map(([name, text], i) => [`id${i}`, { name, text }]));
   let next = files.size;
   const calls: { method: string; url: string; auth: string; body?: string; type?: string }[] = [];
@@ -20,7 +21,10 @@ function fakeDrive(initial: Record<string, string> = {}) {
     if (u.pathname.endsWith('/about')) return Response.json({ user: { emailAddress: 'juliet@example.com', displayName: 'Juliet ShoeMaker' } });
     if (method === 'GET' && !id) {
       const q = u.searchParams.get('q') ?? '';
-      if (q.includes("mimeType='application/vnd.google-apps.folder'")) return Response.json({ files: [] });
+      if (q.includes("mimeType='application/vnd.google-apps.folder'")) {
+        const matches = [...folderNames].filter(([, name]) => q.includes(`name='${name.replace(/'/g, "\\'")}'`));
+        return Response.json({ files: matches.map(([fid, name]) => ({ id: fid, name })) });
+      }
       return Response.json({ files: [...files].map(([fid, f]) => ({ id: fid, name: f.name })) });
     }
     if (method === 'GET' && id) {
@@ -36,6 +40,11 @@ function fakeDrive(initial: Record<string, string> = {}) {
       return Response.json({ id: fid });
     }
     if (method === 'POST') return Response.json({ id: 'folder1' });
+    if (method === 'PATCH' && id && !u.pathname.startsWith('/upload/')) {
+      if (!folderNames.has(id)) return new Response('not found', { status: 404 });
+      folderNames.set(id, JSON.parse(init.body as string).name);
+      return Response.json({ id });
+    }
     if (method === 'PATCH' && id) {
       files.get(id)!.text = init.body as string;
       return Response.json({ id });
@@ -47,7 +56,7 @@ function fakeDrive(initial: Record<string, string> = {}) {
     return new Response('unexpected', { status: 500 });
   });
   vi.stubGlobal('fetch', fetchMock);
-  return { files, calls, expireNext: (n = 1) => (unauthorized = n) };
+  return { files, folderNames, calls, expireNext: (n = 1) => (unauthorized = n) };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -95,6 +104,23 @@ describe('driveTextStore', () => {
     expect(await ensureFolder(token)).toBe('folder1');
     expect(decodeURIComponent(drive.calls[0].url)).toContain("name='Banban\\'s Weight Tracker Data'");
     expect(JSON.parse(drive.calls[1].body!)).toEqual({ name: "Banban's Weight Tracker Data", mimeType: 'application/vnd.google-apps.folder' });
+  });
+
+  it('reuses the folder, renaming one that still has the old "Weight Tracker" name', async () => {
+    const current = fakeDrive({}, { f2: "Banban's Weight Tracker Data" });
+    expect(await ensureFolder(token)).toBe('f2');
+    expect(current.calls).toHaveLength(1);
+
+    const old = fakeDrive({}, { f3: 'Weight Tracker' });
+    expect(await ensureFolder(token)).toBe('f3');
+    expect(old.folderNames.get('f3')).toBe("Banban's Weight Tracker Data");
+  });
+
+  it('renames a remembered folder, and says when it is gone', async () => {
+    const drive = fakeDrive({}, { f3: 'Weight Tracker' });
+    expect(await nameFolder(token, 'f3')).toBe(true);
+    expect(drive.folderNames.get('f3')).toBe("Banban's Weight Tracker Data");
+    expect(await nameFolder(token, 'deleted')).toBe(false);
   });
 });
 

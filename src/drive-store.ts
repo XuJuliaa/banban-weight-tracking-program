@@ -156,21 +156,48 @@ export async function driveUser(getToken: GetToken): Promise<{ email: string; di
   return { email: body.user?.emailAddress ?? '', displayName: body.user?.displayName ?? '' };
 }
 
-/** The app's "Banban's Weight Tracker Data" folder in the user's Drive, created on first use. Returns its id. */
+/** Names the app's Drive folder had before; such a folder is renamed and reused rather than starting a new one. */
+const OLD_FOLDER_NAMES = ['Weight Tracker'];
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+/**
+ * The app's "Banban's Weight Tracker Data" folder in the user's Drive, created on first use. Returns its id.
+ * A folder the app made under an older name is renamed and used instead.
+ */
 export async function ensureFolder(getToken: GetToken): Promise<string> {
-  const q = `mimeType='application/vnd.google-apps.folder' and name=${quote(DRIVE_FOLDER_NAME)} and trashed=false`;
-  const found = await json<{ files: { id: string }[] }>(
-    await driveFetch(getToken, `${API}/files?q=${encodeURIComponent(q)}&fields=files(id)&spaces=drive`),
+  const names = [DRIVE_FOLDER_NAME, ...OLD_FOLDER_NAMES].map((n) => `name=${quote(n)}`).join(' or ');
+  const q = `mimeType='${FOLDER_MIME}' and (${names}) and trashed=false`;
+  const found = await json<{ files: { id: string; name: string }[] }>(
+    await driveFetch(getToken, `${API}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive`),
   );
-  if (found.files[0]) return found.files[0].id;
+  const current = found.files.find((f) => f.name === DRIVE_FOLDER_NAME) ?? found.files[0];
+  if (current) {
+    if (current.name !== DRIVE_FOLDER_NAME) await nameFolder(getToken, current.id);
+    return current.id;
+  }
   const created = await json<{ id: string }>(
     await driveFetch(getToken, `${API}/files?fields=id`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
+      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: FOLDER_MIME }),
     }),
   );
   return created.id;
+}
+
+/**
+ * Gives the app's folder `folderId` its current name (it may have an older one). False when the folder is
+ * gone, so the caller can look for or create it again.
+ */
+export async function nameFolder(getToken: GetToken, folderId: string): Promise<boolean> {
+  const res = await driveFetch(getToken, `${API}/files/${folderId}?fields=id`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: DRIVE_FOLDER_NAME }),
+  });
+  if (res.status === 404) return false;
+  await json(res);
+  return true;
 }
 
 /** The Drive folder `folderId` as a TextStore. File ids are looked up by name and cached. */

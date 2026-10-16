@@ -17,6 +17,7 @@ import {
   type DriveState,
   driveTextStore,
   ensureFolder,
+  nameFolder,
   forgetDrive,
   rememberDrive,
   rememberedDrive,
@@ -258,6 +259,12 @@ export async function useGoogleDrive(): Promise<string> {
   return email;
 }
 
+/** The remembered Drive folder (renamed to the current name if it had an older one), or the one found or made by name. */
+async function driveFolder(rememberedId: string | null): Promise<string> {
+  if (rememberedId && (await nameFolder(driveToken, rememberedId))) return rememberedId;
+  return ensureFolder(driveToken);
+}
+
 /**
  * "Continue with Google" (call from a click): signs in, finds or creates the "Banban's Weight Tracker Data" folder in that
  * Drive, and makes it the only data store until log out. Returns the account's email and name.
@@ -267,7 +274,7 @@ export async function signInWithGoogle(): Promise<{ email: string; displayName: 
   await signIn(drive?.email);
   const user = await driveUser(driveToken);
   const remembered = await rememberedDrive();
-  const folderId = remembered?.email === user.email ? remembered.folderId : await ensureFolder(driveToken);
+  const folderId = await driveFolder(remembered?.email === user.email ? remembered.folderId : null);
   drive = { folderId, email: user.email };
   driveStore = driveTextStore(driveToken, folderId);
   await rememberDrive(drive);
@@ -301,7 +308,7 @@ export async function reconnectGoogle(): Promise<void> {
     await signOut();
     throw new Error(`That's ${email}. This profile is saved in ${drive.email}'s Drive; sign in with that account.`);
   }
-  drive = { folderId: drive?.folderId ?? (await ensureFolder(driveToken)), email };
+  drive = { folderId: await driveFolder(drive?.folderId ?? null), email };
   driveStore = driveTextStore(driveToken, drive.folderId);
   await rememberDrive(drive);
   updateStatus();
