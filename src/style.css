@@ -770,6 +770,13 @@ button.google-button:disabled { opacity: 0.6; cursor: progress; transform: none;
 .google-mark { width: 18px; height: 18px; flex: none; }
 .or-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
 .or-divider::before, .or-divider::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+/* Browsers that can't save to a folder (phones, Safari, Firefox) on a hosted site: Continue with Google only. */
+.google-only-note { display: none; }
+.login-card.google-only .google-only-note { display: block; }
+.login-card.google-only .login-tabs,
+.login-card.google-only .login-form,
+.login-card.google-only .or-divider,
+.login-card.google-only .login-note { display: none; }
 .login-weight { display: grid; gap: 4px; }
 .login-weight p { margin: 0; }
 .login-weight-row { display: flex; gap: 8px; align-items: center; }
