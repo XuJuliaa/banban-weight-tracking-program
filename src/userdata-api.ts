@@ -6,16 +6,18 @@
 // Without any of them the app asks the user to choose (see renderGate in ui.ts).
 // The folder belongs to the logged-in account (see openAccount): each login remembers its own.
 // All three hold the same files (src/profile-files.ts).
+// A "Continue with Google" login is different: it always uses that account's Drive, even when running locally.
 
 import {
   currentToken,
   DRIVE_FOLDER_NAME,
   DriveAuthError,
   driveConfigured,
-  driveEmail,
+  driveUser,
   type DriveState,
   driveTextStore,
   ensureFolder,
+  nameFolder,
   forgetDrive,
   rememberDrive,
   rememberedDrive,
@@ -62,6 +64,8 @@ let servicePath: string | null = null;
 let folder: FileSystemDirectoryHandle | null = null;
 let folderAccess = false;
 let drive: DriveState | null = null;
+/** True while a "Continue with Google" profile is open: its Drive is the only data store. */
+let google = false;
 let driveStore: files.TextStore | null = null;
 let storesLoaded: Promise<void> | null = null;
 let status: UserdataStatus = 'unknown';
@@ -69,7 +73,8 @@ const listeners = new Set<() => void>();
 
 function updateStatus(): void {
   const next: UserdataStatus =
-    service !== 'absent' ? service
+    google ? (drive && driveStore && currentToken() ? 'drive' : 'drive-signin')
+    : service !== 'absent' ? service
     : folder ? (folderAccess ? 'folder' : 'folder-permission')
     : drive ? (driveStore && currentToken() ? 'drive' : 'drive-signin')
     : folderSupported() || driveConfigured() ? 'unavailable'
@@ -82,12 +87,15 @@ function updateStatus(): void {
 export const userdataStatus = () => status;
 /** The data folder: the absolute testdata/ path for the local service, a picked folder's name, or the Drive folder. */
 export const userdataPath = () =>
-  service === 'connected' ? servicePath
+  google ? `Google Drive › ${DRIVE_FOLDER_NAME}`
+  : service === 'connected' ? servicePath
   : folder ? folder.name
   : drive ? `Google Drive › ${DRIVE_FOLDER_NAME}`
   : null;
 /** The Google account whose Drive is used, if any. */
 export const driveAccount = () => drive?.email ?? null;
+/** True while a "Continue with Google" profile is open. */
+export const googleLogin = () => google;
 export function onUserdataStatusChange(fn: () => void): void {
   listeners.add(fn);
 }
@@ -97,7 +105,7 @@ const url = (slug?: string, suffix = '') =>
 
 /** Returns the response, or null when the service isn't there (static host) or can't be reached right now. */
 async function call(slug: string | undefined, init?: RequestInit, suffix = ''): Promise<Response | null> {
-  if (service === 'absent') return null;
+  if (google || service === 'absent') return null;
   let res: Response;
   try {
     res = await fetch(url(slug, suffix), { cache: 'no-store', ...init });
@@ -123,6 +131,11 @@ async function call(slug: string | undefined, init?: RequestInit, suffix = ''): 
 /** Restores the account's folder, or the Google Drive chosen on an earlier visit (once per login). */
 function loadStores(): Promise<void> {
   return (storesLoaded ??= (async () => {
+    if (google) {
+      drive ??= await rememberedDrive();
+      preloadGoogle();
+      return;
+    }
     if (folderSupported() && account) {
       folder = await rememberedFolder(account);
       folderAccess = folder ? await hasPermission(folder, false).catch(() => false) : false;
@@ -144,6 +157,11 @@ async function driveToken(): Promise<string> {
 
 /** The data store to use right now, if there's no service and the user's choice is ready (never prompts). */
 async function activeStore(): Promise<files.TextStore | null> {
+  if (google) {
+    await loadStores();
+    updateStatus();
+    return drive && driveStore && currentToken() ? driveStore : null;
+  }
   if (service !== 'absent') return null;
   await loadStores();
   updateStatus();
@@ -219,7 +237,7 @@ async function stopDrive(): Promise<void> {
 }
 
 /**
- * Signs in to Google (call from a click) and uses the "Weight Tracker" folder in that Drive.
+ * Signs in to Google (call from a click) and uses the "BanBan Weight Tracker" folder in that Drive.
  * Returns the account's email. Replaces a chosen folder.
  */
 export async function useGoogleDrive(): Promise<string> {
@@ -227,7 +245,7 @@ export async function useGoogleDrive(): Promise<string> {
   await signIn(drive?.email);
   await loadStores();
   const folderId = drive?.folderId ?? (await ensureFolder(driveToken));
-  const email = await driveEmail(driveToken);
+  const { email } = await driveUser(driveToken);
   drive = { folderId, email };
   driveStore = driveTextStore(driveToken, folderId);
   await rememberDrive(drive);
@@ -239,6 +257,61 @@ export async function useGoogleDrive(): Promise<string> {
   storesLoaded = Promise.resolve();
   updateStatus();
   return email;
+}
+
+/** The remembered Drive folder (renamed to the current name if it had an older one), or the one found or made by name. */
+async function driveFolder(rememberedId: string | null): Promise<string> {
+  if (rememberedId && (await nameFolder(driveToken, rememberedId))) return rememberedId;
+  return ensureFolder(driveToken);
+}
+
+/**
+ * "Continue with Google" (call from a click): signs in, finds or creates the "BanBan Weight Tracker" folder in that
+ * Drive, and makes it the only data store until log out. Returns the account's email and name.
+ */
+export async function signInWithGoogle(): Promise<{ email: string; displayName: string }> {
+  // Sign in first, straight from the click: browsers (Safari especially) block pop-ups opened later.
+  await signIn(drive?.email);
+  const user = await driveUser(driveToken);
+  const remembered = await rememberedDrive();
+  const folderId = await driveFolder(remembered?.email === user.email ? remembered.folderId : null);
+  drive = { folderId, email: user.email };
+  driveStore = driveTextStore(driveToken, folderId);
+  await rememberDrive(drive);
+  google = true;
+  account = null;
+  folder = null;
+  folderAccess = false;
+  storesLoaded = Promise.resolve();
+  updateStatus();
+  return user;
+}
+
+/** After a reload of a Google login's tab: back to its Drive, which needs signing in again (see reconnectGoogle). */
+export async function resumeGoogle(): Promise<void> {
+  google = true;
+  account = null;
+  folder = null;
+  storesLoaded = null;
+  await loadStores();
+  updateStatus();
+}
+
+/**
+ * Signs in again to the Google login's Drive (call from a click), after a reload or when the hour-long sign-in
+ * runs out. Refuses a different Google account than the one the profile belongs to.
+ */
+export async function reconnectGoogle(): Promise<void> {
+  await signIn(drive?.email);
+  const { email } = await driveUser(driveToken);
+  if (drive && email !== drive.email) {
+    await signOut();
+    throw new Error(`That's ${email}. This profile is saved in ${drive.email}'s Drive; sign in with that account.`);
+  }
+  drive = { folderId: await driveFolder(drive?.folderId ?? null), email };
+  driveStore = driveTextStore(driveToken, drive.folderId);
+  await rememberDrive(drive);
+  updateStatus();
 }
 
 /** Signs out of Google Drive. The files stay in Drive; the app asks where to save next. */
@@ -291,6 +364,13 @@ export async function openAccount(slug: string, handle: FileSystemDirectoryHandl
 
 /** Closes the login's folder (log out). Nothing is deleted; logging in again reopens it. */
 export function closeAccount(): void {
+  if (google) {
+    // Log out of a Google login also signs out of Google; the files stay in Drive.
+    google = false;
+    drive = null;
+    driveStore = null;
+    void signOut();
+  }
   account = null;
   folder = null;
   folderAccess = false;

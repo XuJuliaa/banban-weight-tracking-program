@@ -41,18 +41,31 @@ export function usernameProblem(name: string): string | null {
   return null;
 }
 
-/** The username logged in on this tab: survives a reload, ends when the tab or browser closes. */
-export function currentSession(): string | null {
+export type LoginKind = 'username' | 'google';
+
+/**
+ * The profile logged in on this tab and how (username + weight, or Google): survives a reload, ends when the
+ * tab or browser closes. Sessions saved before Google login existed hold just the name and read as username.
+ */
+export function currentSession(): { name: string; kind: LoginKind } | null {
   try {
-    return sessionStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { name?: unknown; kind?: unknown };
+      if (typeof parsed.name === 'string') return { name: parsed.name, kind: parsed.kind === 'google' ? 'google' : 'username' };
+    } catch {
+      // An older plain name.
+    }
+    return { name: raw, kind: 'username' };
   } catch {
     return null;
   }
 }
 
-export function startSession(name: string): void {
+export function startSession(name: string, kind: LoginKind = 'username'): void {
   try {
-    sessionStorage.setItem(SESSION_KEY, name);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ name, kind }));
   } catch {
     // Private mode can block storage; the login still works until the page is reloaded.
   }
@@ -64,4 +77,16 @@ export function endSession(): void {
   } catch {
     // Nothing was stored.
   }
+}
+
+/**
+ * The profile name for a Google account: the first name ("Juliet" from "Juliet ShoeMaker"). When `taken`
+ * says a username profile already has that name, the full name, then the email's first part, so a Google
+ * login never opens someone's username profile. Without a name on the account, the email's first part.
+ */
+export function googleProfileName(displayName: string, email: string, taken: (name: string) => boolean): string {
+  const local = email.split('@')[0] ?? '';
+  const full = displayName.trim().replace(/\s+/g, ' ');
+  const candidates = [full.split(' ')[0], full, local, email].filter((n) => n && !usernameProblem(n));
+  return candidates.find((n) => !taken(n)) ?? candidates[candidates.length - 1] ?? 'Me';
 }
