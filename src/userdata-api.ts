@@ -236,7 +236,7 @@ async function stopDrive(): Promise<void> {
 }
 
 /**
- * Signs in to Google (call from a click) and uses the "Weight Tracker" folder in that Drive.
+ * Signs in to Google (call from a click) and uses the "Banban's Weight Tracker Data" folder in that Drive.
  * Returns the account's email. Replaces a chosen folder.
  */
 export async function useGoogleDrive(): Promise<string> {
@@ -259,7 +259,7 @@ export async function useGoogleDrive(): Promise<string> {
 }
 
 /**
- * "Continue with Google" (call from a click): signs in, finds or creates the "Weight Tracker" folder in that
+ * "Continue with Google" (call from a click): signs in, finds or creates the "Banban's Weight Tracker Data" folder in that
  * Drive, and makes it the only data store until log out. Returns the account's email and name.
  */
 export async function signInWithGoogle(): Promise<{ email: string; displayName: string }> {

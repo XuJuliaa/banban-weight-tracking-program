@@ -1,4 +1,4 @@
-// Google Drive as the data folder: the same CSV files, kept in a "Weight Tracker" folder in the user's
+// Google Drive as the data folder: the same CSV files, kept in a "Banban's Weight Tracker Data" folder in the user's
 // own Drive. Works in any browser, phones included. Everything runs in the page: Google Identity
 // Services signs the user in and hands out a short-lived access token (kept in memory only), and the
 // Drive REST API is called with fetch. The drive.file permission only lets the app see files it created.
@@ -38,7 +38,7 @@ const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const GIS_URL = 'https://accounts.google.com/gsi/client';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-export const DRIVE_FOLDER_NAME = 'Weight Tracker';
+export const DRIVE_FOLDER_NAME = "Banban's Weight Tracker Data";
 const STATE_KEY = 'driveState';
 
 /** True when this build has a Google client ID (VITE_GOOGLE_CLIENT_ID), so Drive can be offered. */
@@ -156,7 +156,7 @@ export async function driveUser(getToken: GetToken): Promise<{ email: string; di
   return { email: body.user?.emailAddress ?? '', displayName: body.user?.displayName ?? '' };
 }
 
-/** The app's "Weight Tracker" folder in the user's Drive, created on first use. Returns its id. */
+/** The app's "Banban's Weight Tracker Data" folder in the user's Drive, created on first use. Returns its id. */
 export async function ensureFolder(getToken: GetToken): Promise<string> {
   const q = `mimeType='application/vnd.google-apps.folder' and name=${quote(DRIVE_FOLDER_NAME)} and trashed=false`;
   const found = await json<{ files: { id: string }[] }>(
