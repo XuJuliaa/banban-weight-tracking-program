@@ -155,7 +155,7 @@ Data is always saved as CSV files in a data folder. The **Data & backup → Data
 
 1. **`testdata/`**, whenever the app runs through `npm run dev` or `npm run preview`.
 2. **A folder you chose**, on a hosted site (Chrome, Edge, Brave or Arc on a computer).
-3. **Google Drive**, on a hosted site in any browser, once it's [set up](#saving-to-google-drive).
+3. **Google Drive**, for a **Continue with Google** login, in any browser, once it's [set up](#saving-to-google-drive).
 
 The app doesn't let you log anything without a data folder. Browser storage (IndexedDB) keeps a copy as a cache only, and the folder's files are the source of truth.
 
@@ -192,7 +192,7 @@ On a hosted copy of the app there's no `testdata/` service. The browser saves to
 | Browser | What happens |
 | --- | --- |
 | Chrome, Edge, Brave, Arc on a computer | Choose a folder |
-| Safari, Firefox, any phone browser | A notice asks you to open the link in Chrome or Edge on a computer instead (Google Drive will cover these browsers, see below). |
+| Safari, Firefox, any phone browser | Use **Continue with Google** to save to Google Drive (see below), or open the link in Chrome or Edge on a computer. |
 
 1. **Creating an account** includes a required **Where to save your data** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create account** stays blocked until a folder is chosen. The folder is remembered for that profile, so two people can use different folders in one browser.
 2. **Saving:** the app writes `profiles.csv` and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `testdata/`, so you can even pick the project's `testdata/` folder. Several profiles can share one folder.
@@ -203,18 +203,18 @@ On a hosted copy of the app there's no `testdata/` service. The browser saves to
 Browsers only reveal the folder's name to the page, not its full path.
 
 ### Saving to Google Drive
-> **Not offered right now.** With username logins, Drive saving is being reworked into a **Continue with Google** login (one profile per Google account, saved in that person's Drive). The code and setup below stay as they are for that.
+**Continue with Google** on the login page is a second way in, next to the username login. It signs in with Google and keeps the same CSV files in a **Weight Tracker** folder in that person's own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
 
-**Use Google Drive** signs in with Google and keeps the same CSV files in a **Weight Tracker** folder in your own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
-
+- **One profile per Google account**, named from the account's first name (e.g. "Juliet"). If a username profile already has that name, the full name or the email's first part is used instead, so the two never mix. Google profiles can't be opened with a username and weight.
+- **Always Drive.** A Google login saves to Drive even while running locally; `testdata/` is only for username profiles.
 - **Narrow permission.** The app asks only for `drive.file`, so it can see the files it created and nothing else in your Drive.
-- **Signing in.** Google's sign-in lasts an hour and isn't kept between visits. Each visit, and after an hour, the app shows **Sign in to Google** (one tap) before you can log anything.
+- **Signing in again.** Google's sign-in lasts an hour and isn't kept between visits. After a reload, and after an hour, the app shows **Sign in to Google** (one tap) before you can log anything. Only the profile's own Google account is accepted.
 - **Several devices.** The phone and the computer use the same files. When you come back to the tab, the open profile reloads from Drive. Saves replace whole files, so the last save wins.
-- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use **Import … CSV** to bring existing data in.
-- **Signing out.** **Data & backup → Sign out of Google Drive** leaves the files in Drive; the app then asks where to save.
+- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use import to bring existing data in.
+- **Log out** also signs out of Google. The files stay in Drive.
 
 #### One-time setup (by whoever hosts the site)
-Drive needs a Google OAuth client ID. It's free and has no client secret.
+Google sign-in needs a Google OAuth client ID. It's free and has no client secret.
 1. Go to [console.cloud.google.com](https://console.cloud.google.com/), create a project (e.g. *Weight Tracker*), and enable the **Google Drive API** (*APIs & Services → Library*).
 2. **OAuth consent screen:**
    - choose **External**, then fill in the app name and support email;
@@ -222,14 +222,14 @@ Drive needs a Google OAuth client ID. It's free and has no client secret.
    - leave it in **Testing** and add every user's Gmail address under **Test users** (up to 100).
 3. **Credentials → Create credentials → OAuth client ID:**
    - type **Web application**;
-   - under **Authorized JavaScript origins**, add `http://localhost:5173`, `http://localhost:8080` and, later, the hosted site's origin (e.g. `https://<name>.pages.dev`). Origins have no path.
-4. Copy the client ID into `.env.local` in the project (see `.env.example`):
+   - under **Authorized JavaScript origins**, add `http://localhost:4173`, `http://localhost:5173` and `https://xujuliaa.github.io`. Origins have no path.
+4. Copy the client ID into `.env.local` in the project (see `.env.example`), then rebuild:
    ```
    VITE_GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
    ```
-   For a hosted build, set the same variable in the host's build settings. Then rebuild.
+5. For the GitHub Pages site, save the same value as a repository **variable** (not a secret; the ID is public): `gh variable set VITE_GOOGLE_CLIENT_ID`, or *Settings → Secrets and variables → Actions → Variables*. The deploy workflow passes it to the build.
 
-While the app is in Testing, Google shows an "unverified app" notice and only the listed test users can sign in. That's fine for personal and family use. Without a client ID, the Drive option is simply hidden.
+While the app is in Testing, Google shows an "unverified app" notice and only the listed test users can sign in. That's fine for personal and family use. Without a client ID, the Google button is simply hidden.
 
 ### Browser storage
 IndexedDB database `keyval-store`. Each browser and each web address (`localhost:5173`, the GitHub Pages site…) keeps its own copy.
@@ -337,6 +337,7 @@ The tests cover:
 - the folder file layout (in memory and on disk): writing, reading, validation and migration
 - import duplicate-skipping
 - the Google Drive store, against a fake Drive API
+- Google login: the session, the profile name and keeping Google profiles apart from username ones
 
 ---
 
