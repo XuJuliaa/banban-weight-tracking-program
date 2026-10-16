@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DriveAuthError, driveTextStore, ensureFolder } from './drive-store';
+import { DriveAuthError, driveTextStore, driveUser, ensureFolder } from './drive-store';
 
 /** A tiny fake of the Drive REST API: one folder of files, with every request recorded. */
 function fakeDrive(initial: Record<string, string> = {}) {
@@ -17,6 +17,7 @@ function fakeDrive(initial: Record<string, string> = {}) {
     }
     const u = new URL(url);
     const id = /\/files\/([^/?]+)/.exec(u.pathname)?.[1];
+    if (u.pathname.endsWith('/about')) return Response.json({ user: { emailAddress: 'juliet@example.com', displayName: 'Juliet ShoeMaker' } });
     if (method === 'GET' && !id) {
       const q = u.searchParams.get('q') ?? '';
       if (q.includes("mimeType='application/vnd.google-apps.folder'")) return Response.json({ files: [] });
@@ -94,5 +95,13 @@ describe('driveTextStore', () => {
     expect(await ensureFolder(token)).toBe('folder1');
     expect(decodeURIComponent(drive.calls[0].url)).toContain("name='Weight Tracker'");
     expect(JSON.parse(drive.calls[1].body!)).toEqual({ name: 'Weight Tracker', mimeType: 'application/vnd.google-apps.folder' });
+  });
+});
+
+describe('driveUser', () => {
+  it("reads the account's email and name", async () => {
+    const drive = fakeDrive();
+    expect(await driveUser(token)).toEqual({ email: 'juliet@example.com', displayName: 'Juliet ShoeMaker' });
+    expect(drive.calls[0].url).toContain('about?fields=user(emailAddress,displayName)');
   });
 });

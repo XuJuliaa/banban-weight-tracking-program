@@ -30,7 +30,8 @@ import { profileFiles } from './profile-files';
 import type { UserData } from './types';
 import { pointsIn } from './units';
 import { folderSupported } from './folder-store';
-import { driveAccount, type UserdataStatus } from './userdata-api';
+import { driveAccount, googleLogin, type UserdataStatus } from './userdata-api';
+import { driveConfigured } from './drive-store';
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -114,6 +115,8 @@ export const dom = {
   folderGateText: el<HTMLParagraphElement>('folder-gate-text'),
   folderGateBtn: el<HTMLButtonElement>('folder-gate-btn'),
   driveGateBtn: el<HTMLButtonElement>('drive-gate-btn'),
+  googleLogin: el<HTMLDivElement>('google-login'),
+  googleLoginBtn: el<HTMLButtonElement>('google-login-btn'),
   useDriveBtn: el<HTMLButtonElement>('use-drive-btn'),
   signOutDriveBtn: el<HTMLButtonElement>('sign-out-drive-btn'),
   overrideForm: el<HTMLFormElement>('override-form'),
@@ -170,7 +173,7 @@ export function renderLogin(mode: LoginMode, focus = false): void {
 }
 
 /** Shows (or with null, clears) the error line under a login form's fields. */
-export function showFormError(form: HTMLFormElement, message: string | null): void {
+export function showFormError(form: HTMLElement, message: string | null): void {
   const line = form.querySelector<HTMLElement>('[data-form-error]')!;
   line.textContent = message ?? '';
   line.hidden = message === null;
@@ -380,9 +383,10 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
   const buttons: [HTMLButtonElement, boolean][] = [
     [dom.chooseFolderBtn, status === 'unavailable' && canFolder()],
     [dom.reconnectFolderBtn, status === 'folder-permission'],
-    [dom.changeFolderBtn, hosted && status !== 'unavailable' && canFolder()],
+    // A Google login always saves to its Drive (Log out signs out of Google), so it gets no switches.
+    [dom.changeFolderBtn, hosted && status !== 'unavailable' && canFolder() && !googleLogin()],
     [dom.useDriveBtn, hosted && status !== 'drive' && canDrive()],
-    [dom.signOutDriveBtn, onDrive],
+    [dom.signOutDriveBtn, onDrive && !googleLogin()],
   ];
   for (const [button, show] of buttons) button.hidden = !show;
   dom.folderActions.hidden = !buttons.some(([, show]) => show);
@@ -418,7 +422,7 @@ export function renderSignupFolder(status: UserdataStatus, path: string | null, 
   dom.signupFolderStatus.textContent =
     local ? `Saved in the project's testdata/ folder (${path ?? 'testdata/'}).`
     : picked ? `Saved in "${picked}".`
-    : !canFolder() ? "This browser can't save to a folder. Open this page in Chrome or Edge on a computer."
+    : !canFolder() ? `This browser can't save to a folder. ${driveConfigured() ? 'Use Continue with Google above, or open' : 'Open'} this page in Chrome or Edge on a computer.`
     : 'Choose a folder on this computer for your CSV files, e.g. Documents/Weight Tracker.';
 }
 
@@ -454,7 +458,9 @@ export function renderGate(status: UserdataStatus, path: string | null, loggedIn
   } else if (status === 'unavailable') {
     gate = {
       title: 'Choose where to save your data',
-      text: 'Pick the folder on this computer where your data is kept. Your files already in it are loaded from it.',
+      text: canFolder()
+        ? 'Pick the folder on this computer where your data is kept. Your files already in it are loaded from it.'
+        : "This browser can't save to a folder. Log out and use Continue with Google, or open this page in Chrome or Edge on a computer.",
       folder: canFolder() ? 'Choose folder…' : undefined,
       drive: canDrive() ? 'Use Google Drive' : undefined,
     };

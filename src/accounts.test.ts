@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { loginRange, usernameProblem, weightMatches } from './accounts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { currentSession, endSession, googleProfileName, loginRange, startSession, usernameProblem, weightMatches } from './accounts';
 import { makeEntry } from './units';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -56,5 +56,54 @@ describe('accounts', () => {
   it('lets a profile with no weigh-ins in, since there is nothing to check', () => {
     expect(loginRange([], 'kg')).toBeNull();
     expect(weightMatches([], NaN, 'kg')).toBe(true);
+  });
+});
+
+describe('sessions', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const fakeSessionStorage = () => {
+    const items = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (k: string) => items.get(k) ?? null,
+      setItem: (k: string, v: string) => void items.set(k, v),
+      removeItem: (k: string) => void items.delete(k),
+    });
+    return items;
+  };
+
+  it('remembers the name and how the user logged in', () => {
+    fakeSessionStorage();
+    expect(currentSession()).toBeNull();
+    startSession('Juliet', 'google');
+    expect(currentSession()).toEqual({ name: 'Juliet', kind: 'google' });
+    startSession('Juju');
+    expect(currentSession()).toEqual({ name: 'Juju', kind: 'username' });
+    endSession();
+    expect(currentSession()).toBeNull();
+  });
+
+  it('reads a session saved as a plain name as a username login', () => {
+    fakeSessionStorage().set('session', 'Juju');
+    expect(currentSession()).toEqual({ name: 'Juju', kind: 'username' });
+  });
+});
+
+describe('googleProfileName', () => {
+  const none = () => false;
+
+  it("uses the account's first name", () => {
+    expect(googleProfileName('Juliet ShoeMaker', 'juliet@example.com', none)).toBe('Juliet');
+    expect(googleProfileName('  Ana   Maria Lopez ', 'ana@example.com', none)).toBe('Ana');
+  });
+
+  it('falls back to the full name, then the email, when a username profile has the name', () => {
+    const taken = (...names: string[]) => (n: string) => names.includes(n);
+    expect(googleProfileName('Juliet ShoeMaker', 'jshoe@example.com', taken('Juliet'))).toBe('Juliet ShoeMaker');
+    expect(googleProfileName('Juliet ShoeMaker', 'jshoe@example.com', taken('Juliet', 'Juliet ShoeMaker'))).toBe('jshoe');
+  });
+
+  it('uses the email when the account has no usable name', () => {
+    expect(googleProfileName('', 'jshoe@example.com', none)).toBe('jshoe');
+    expect(googleProfileName('—', 'jshoe@example.com', none)).toBe('jshoe');
   });
 });

@@ -1,9 +1,11 @@
 import './style.css';
-import { currentSession, endSession, startSession, usernameProblem, weightMatches } from './accounts';
+import { currentSession, endSession, googleProfileName, startSession, usernameProblem, weightMatches } from './accounts';
 import {
   createProfile,
   findProfileByName,
+  listProfiles,
   loadUser,
+  openGoogleProfile,
   requestPersistentStorage,
   saveUser,
   loadUserFromFiles,
@@ -17,7 +19,12 @@ import {
   onUserdataStatusChange,
   openAccount,
   pickAccountFolder,
+  fetchProfileList,
   findProfileData,
+  googleLogin,
+  reconnectGoogle,
+  resumeGoogle,
+  signInWithGoogle,
   signOutDrive,
   useGoogleDrive,
   reconnectFolder,
@@ -26,6 +33,7 @@ import {
 } from './userdata-api';
 import { profileSlug } from './names';
 import { folderSupported } from './folder-store';
+import { driveConfigured, preloadGoogle } from './drive-store';
 import type { UserData, WeightEntry, WeightUnit } from './types';
 import { dayKey, startOfDay } from './stats';
 import { overrideDay } from './edits';
@@ -327,6 +335,52 @@ dom.signupFolderBtn.addEventListener('click', async () => {
   }
 });
 
+// --- Continue with Google: one profile per Google account, saved in that account's Drive.
+
+/** Username profile names (this browser's, and testdata/'s when running locally) a Google profile mustn't take. */
+let takenNames = new Set<string>();
+
+async function refreshTakenNames(): Promise<void> {
+  const names = (await listProfiles()).filter((p) => !p.googleEmail).map((p) => p.name);
+  if (await localService()) names.push(...((await fetchProfileList().catch(() => null)) ?? []).map((p) => p.name));
+  takenNames = new Set(names.map(profileSlug));
+}
+
+async function continueWithGoogle(): Promise<void> {
+  showFormError(dom.googleLogin, null);
+  dom.googleLoginBtn.disabled = true;
+  try {
+    // signInWithGoogle opens Google's pop-up, so it runs first, straight from the click.
+    const { email, displayName } = await signInWithGoogle();
+    const name = googleProfileName(displayName, email, (n) => takenNames.has(profileSlug(n)));
+    const { user, existed } = await openGoogleProfile(name, email);
+    startSession(user.name, 'google');
+    await selectProfile(user.userId);
+    showToast(existed ? `Welcome back, ${user.name}` : `Welcome, ${user.name}`);
+  } catch (err) {
+    console.error(err);
+    if (googleLogin()) closeAccount();
+    showFormError(dom.googleLogin, err instanceof Error ? err.message : "Couldn't sign in with Google");
+  } finally {
+    dom.googleLoginBtn.disabled = false;
+  }
+}
+
+/** The gate's "Sign in to Google" for a Google login: after a reload, or when the hour-long sign-in ran out. */
+async function signInAgain(): Promise<void> {
+  try {
+    await reconnectGoogle();
+    await loadFromStore('Signed in to Google');
+  } catch (err) {
+    console.error(err);
+    showToast(err instanceof Error ? err.message : "Couldn't sign in to Google");
+  }
+}
+
+dom.googleLogin.hidden = !driveConfigured();
+dom.googleLoginBtn.addEventListener('click', () => void continueWithGoogle());
+preloadGoogle();
+
 function selectLoginMode(mode: LoginMode, focus = false): void {
   renderLogin(mode, focus);
   showFormError(dom.loginForm, null);
@@ -349,6 +403,7 @@ dom.logoutBtn.addEventListener('click', () => {
   endSession();
   current = null;
   closeAccount();
+  void refreshTakenNames();
   selectLoginMode('login');
   render();
   dom.loginForm.querySelector('input')?.focus();
@@ -798,7 +853,7 @@ dom.chooseFolderBtn.addEventListener('click', () => void pickDataFolder());
 dom.changeFolderBtn.addEventListener('click', () => void pickDataFolder());
 dom.reconnectFolderBtn.addEventListener('click', () => void reconnect());
 dom.folderGateBtn.addEventListener('click', folderAction);
-dom.driveGateBtn.addEventListener('click', () => void pickDrive());
+dom.driveGateBtn.addEventListener('click', () => void (googleLogin() ? signInAgain() : pickDrive()));
 dom.useDriveBtn.addEventListener('click', () => void pickDrive());
 dom.signOutDriveBtn.addEventListener('click', async () => {
   await signOutDrive();
@@ -849,9 +904,18 @@ initThemePicker(document.getElementById('theme-picker')!);
 void requestPersistentStorage();
 /** Reopens the profile logged in on this tab (e.g. after a reload); otherwise shows the login page. */
 async function start(): Promise<void> {
+  const session = currentSession();
+  if (session?.kind === 'google' && driveConfigured()) {
+    // Back to the Google login's Drive; the gate asks to sign in to Google again (it needs a click).
+    await resumeGoogle();
+    const summary = (await listProfiles()).find((p) => p.googleEmail && p.name === session.name);
+    if (summary) return selectProfile(summary.userId);
+    endSession();
+    closeAccount();
+  }
   const local = await localService();
-  const name = currentSession();
-  if (name && (await knownEntries(name, local)) !== null) await enter(name, null, false);
+  await refreshTakenNames();
+  if (session?.kind === 'username' && (await knownEntries(session.name, local)) !== null) await enter(session.name, null, false);
   else render();
 }
 

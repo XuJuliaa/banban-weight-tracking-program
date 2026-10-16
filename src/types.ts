@@ -57,11 +57,15 @@ export interface UserData {
   exercises?: ExerciseEntry[];
   /** Epoch ms of the last save in this browser. */
   updatedAt?: number;
+  /** Set for a profile opened with "Continue with Google": the account's email. Its data is saved in that Drive. */
+  googleEmail?: string;
 }
 
 export interface ProfileSummary {
   userId: string;
   name: string;
+  /** The Google account of a "Continue with Google" profile; such profiles can't be opened by username. */
+  googleEmail?: string;
 }
 
 /** A profile as stored in the testdata/ CSV files (no browser id). */

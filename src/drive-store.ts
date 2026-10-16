@@ -148,10 +148,12 @@ async function json<T>(res: Response): Promise<T> {
 
 const quote = (value: string) => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
-/** The signed-in account's email address. */
-export async function driveEmail(getToken: GetToken): Promise<string> {
-  const body = await json<{ user?: { emailAddress?: string } }>(await driveFetch(getToken, `${API}/about?fields=user(emailAddress)`));
-  return body.user?.emailAddress ?? '';
+/** The signed-in account's email address and name (Drive's "about" call, so no extra permission is needed). */
+export async function driveUser(getToken: GetToken): Promise<{ email: string; displayName: string }> {
+  const body = await json<{ user?: { emailAddress?: string; displayName?: string } }>(
+    await driveFetch(getToken, `${API}/about?fields=user(emailAddress,displayName)`),
+  );
+  return { email: body.user?.emailAddress ?? '', displayName: body.user?.displayName ?? '' };
 }
 
 /** The app's "Weight Tracker" folder in the user's Drive, created on first use. Returns its id. */
