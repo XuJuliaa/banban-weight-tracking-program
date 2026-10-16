@@ -192,7 +192,7 @@ On a hosted copy of the app there's no `testdata/` service. The browser saves to
 | Browser | What happens |
 | --- | --- |
 | Chrome, Edge, Brave, Arc on a computer | Choose a folder |
-| Safari, Firefox, any phone browser | Use **Continue with Google** to save to Google Drive (see below), or open the link in Chrome or Edge on a computer. |
+| Safari, Firefox, any phone browser | The login page offers only **Continue with Google**, which saves to Google Drive (see below). Username logins need Chrome or Edge on a computer. |
 
 1. **Creating an account** includes a required **Where to save your data** field. Click **Choose folder…** and pick or create a folder, e.g. *Documents/Weight Tracker*, then allow access. **Create account** stays blocked until a folder is chosen. The folder is remembered for that profile, so two people can use different folders in one browser.
 2. **Saving:** the app writes `profiles.csv` and `<name>-weight.csv`, `-food.csv` and `-exercise.csv` there after every change. These are exactly the same files as `testdata/`, so you can even pick the project's `testdata/` folder. Several profiles can share one folder.

@@ -378,6 +378,15 @@ async function signInAgain(): Promise<void> {
 }
 
 dom.googleLogin.hidden = !driveConfigured();
+
+/**
+ * Phones, Safari and Firefox can't save to a folder, so on a hosted site a username login has nowhere to keep
+ * its data there: the login page then offers only Continue with Google. Running locally, testdata/ works anywhere.
+ */
+async function updateLoginOptions(): Promise<void> {
+  const googleOnly = driveConfigured() && !folderSupported() && !(await localService());
+  dom.login.classList.toggle('google-only', googleOnly);
+}
 dom.googleLoginBtn.addEventListener('click', () => void continueWithGoogle());
 preloadGoogle();
 
@@ -404,6 +413,7 @@ dom.logoutBtn.addEventListener('click', () => {
   current = null;
   closeAccount();
   void refreshTakenNames();
+  void updateLoginOptions();
   selectLoginMode('login');
   render();
   dom.loginForm.querySelector('input')?.focus();
@@ -914,6 +924,7 @@ async function start(): Promise<void> {
     closeAccount();
   }
   const local = await localService();
+  await updateLoginOptions();
   await refreshTakenNames();
   if (session?.kind === 'username' && (await knownEntries(session.name, local)) !== null) await enter(session.name, null, false);
   else render();
