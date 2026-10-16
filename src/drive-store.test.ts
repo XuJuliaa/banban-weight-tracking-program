@@ -99,27 +99,31 @@ describe('driveTextStore', () => {
     await expect(driveTextStore(getToken, 'folder1').list()).rejects.toBeInstanceOf(DriveAuthError);
   });
 
-  it("creates the Banban's Weight Tracker Data folder when it does not exist", async () => {
+  it('creates the BanBan Weight Tracker folder when it does not exist', async () => {
     const drive = fakeDrive();
     expect(await ensureFolder(token)).toBe('folder1');
-    expect(decodeURIComponent(drive.calls[0].url)).toContain("name='Banban\\'s Weight Tracker Data'");
-    expect(JSON.parse(drive.calls[1].body!)).toEqual({ name: "Banban's Weight Tracker Data", mimeType: 'application/vnd.google-apps.folder' });
+    expect(decodeURIComponent(drive.calls[0].url)).toContain("name='BanBan Weight Tracker'");
+    expect(JSON.parse(drive.calls[1].body!)).toEqual({ name: 'BanBan Weight Tracker', mimeType: 'application/vnd.google-apps.folder' });
   });
 
-  it('reuses the folder, renaming one that still has the old "Weight Tracker" name', async () => {
-    const current = fakeDrive({}, { f2: "Banban's Weight Tracker Data" });
+  it('reuses the folder, renaming one that still has an older name', async () => {
+    const current = fakeDrive({}, { f2: 'BanBan Weight Tracker' });
     expect(await ensureFolder(token)).toBe('f2');
     expect(current.calls).toHaveLength(1);
 
     const old = fakeDrive({}, { f3: 'Weight Tracker' });
     expect(await ensureFolder(token)).toBe('f3');
-    expect(old.folderNames.get('f3')).toBe("Banban's Weight Tracker Data");
+    expect(old.folderNames.get('f3')).toBe('BanBan Weight Tracker');
+
+    const previous = fakeDrive({}, { f4: "Banban's Weight Tracker Data" });
+    expect(await ensureFolder(token)).toBe('f4');
+    expect(previous.folderNames.get('f4')).toBe('BanBan Weight Tracker');
   });
 
   it('renames a remembered folder, and says when it is gone', async () => {
     const drive = fakeDrive({}, { f3: 'Weight Tracker' });
     expect(await nameFolder(token, 'f3')).toBe(true);
-    expect(drive.folderNames.get('f3')).toBe("Banban's Weight Tracker Data");
+    expect(drive.folderNames.get('f3')).toBe('BanBan Weight Tracker');
     expect(await nameFolder(token, 'deleted')).toBe(false);
   });
 });
