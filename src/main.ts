@@ -34,6 +34,7 @@ import {
 import { profileSlug } from './names';
 import { folderSupported } from './folder-store';
 import { driveConfigured, preloadGoogle } from './drive-store';
+import { isMobileDevice } from './device';
 import type { UserData, WeightEntry, WeightUnit } from './types';
 import { dayKey, startOfDay } from './stats';
 import { overrideDay } from './edits';
@@ -379,13 +380,24 @@ async function signInAgain(): Promise<void> {
 
 dom.googleLogin.hidden = !driveConfigured();
 
+/** True when the login page offers only Continue with Google (see updateLoginOptions). */
+let googleOnly = false;
+
 /**
- * Phones, Safari and Firefox can't save to a folder, so on a hosted site a username login has nowhere to keep
- * its data there: the login page then offers only Continue with Google. Running locally, testdata/ works anywhere.
+ * Phones and tablets only sign in with Google, even when running locally: the username + weight login is taken
+ * off the page. Safari and Firefox on a computer can't save to a folder either, so on a hosted site they get the
+ * same; running locally, testdata/ works in any browser.
  */
 async function updateLoginOptions(): Promise<void> {
-  const googleOnly = driveConfigured() && !folderSupported() && !(await localService());
-  dom.login.classList.toggle('google-only', googleOnly);
+  googleOnly = isMobileDevice() || (driveConfigured() && !folderSupported() && !(await localService()));
+  if (!googleOnly) return;
+  dom.login.classList.add('google-only');
+  for (const part of dom.login.querySelectorAll('.login-tabs, .login-form, .or-divider, .login-note')) part.remove();
+  if (!driveConfigured()) {
+    dom.googleLogin.hidden = false;
+    dom.googleLoginBtn.hidden = true;
+    showFormError(dom.googleLogin, "Sign-in with Google isn't set up for this copy of the app yet.");
+  }
 }
 dom.googleLoginBtn.addEventListener('click', () => void continueWithGoogle());
 preloadGoogle();
@@ -413,10 +425,9 @@ dom.logoutBtn.addEventListener('click', () => {
   current = null;
   closeAccount();
   void refreshTakenNames();
-  void updateLoginOptions();
   selectLoginMode('login');
   render();
-  dom.loginForm.querySelector('input')?.focus();
+  (googleOnly ? dom.googleLoginBtn : dom.loginForm.querySelector('input'))?.focus();
 });
 
 dom.entryForm.addEventListener('submit', async (event) => {
@@ -926,7 +937,8 @@ async function start(): Promise<void> {
   const local = await localService();
   await updateLoginOptions();
   await refreshTakenNames();
-  if (session?.kind === 'username' && (await knownEntries(session.name, local)) !== null) await enter(session.name, null, false);
+  // A username login isn't offered on this device (phones and tablets), so its session isn't reopened either.
+  if (session?.kind === 'username' && !googleOnly && (await knownEntries(session.name, local)) !== null) await enter(session.name, null, false);
   else render();
 }
 
