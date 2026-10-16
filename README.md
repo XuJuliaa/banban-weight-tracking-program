@@ -208,7 +208,7 @@ Browsers only reveal the folder's name to the page, not its full path.
 - **One profile per Google account**, named from the account's first name (e.g. "Juliet"). If a username profile already has that name, the full name or the email's first part is used instead, so the two never mix. Google profiles can't be opened with a username and weight.
 - **Always Drive.** A Google login saves to Drive even while running locally; `testdata/` is only for username profiles.
 - **Narrow permission.** The app asks only for `drive.file`, so it can see the files it created and nothing else in your Drive.
-- **Signing in again.** Google's sign-in lasts an hour and isn't kept between visits. After a reload, and after an hour, the app shows **Sign in to Google** (one tap) before you can log anything. Only the profile's own Google account is accepted.
+- **Signing in again.** Google's sign-in lasts about an hour. Reloading the page keeps you signed in during that hour (the sign-in is kept for that browser tab only, and is gone when the tab closes). After the hour, or in a new tab, the app shows **Sign in to Google** (one tap) before you can log anything. Only the profile's own Google account is accepted.
 - **Several devices.** The phone and the computer use the same files. When you come back to the tab, the open profile reloads from Drive. Saves replace whole files, so the last save wins.
 - **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use import to bring existing data in.
 - **Log out** also signs out of Google. The files stay in Drive.
@@ -239,7 +239,7 @@ IndexedDB database `keyval-store`. Each browser and each web address (`localhost
 | `profiles` | List of `{ userId, name }` |
 | `user:<userId>` | The whole record: name, unit, weigh-ins, foods, exercises, `updatedAt` |
 | `dataFolder` | The folder chosen with **Choose folder…**, if any |
-| `driveState` | The Google Drive folder id and account email, if Drive is used. The sign-in token itself is never stored. |
+| `driveState` | The Google Drive folder id and account email, if Drive is used. The sign-in token is kept only in the tab's session storage (`driveToken`) until it expires or the tab closes. |
 
 ---
 

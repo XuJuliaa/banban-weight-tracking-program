@@ -287,13 +287,18 @@ export async function signInWithGoogle(): Promise<{ email: string; displayName: 
   return user;
 }
 
-/** After a reload of a Google login's tab: back to its Drive, which needs signing in again (see reconnectGoogle). */
+/**
+ * After a reload of a Google login's tab: back to its Drive. Still signed in if Google's sign-in hasn't run
+ * out yet; otherwise the app asks to sign in again (see reconnectGoogle).
+ */
 export async function resumeGoogle(): Promise<void> {
   google = true;
   account = null;
   folder = null;
   storesLoaded = null;
   await loadStores();
+  // Still signed in from before the reload (the token lasts about an hour): carry on without asking.
+  if (drive && currentToken()) driveStore = driveTextStore(driveToken, drive.folderId);
   updateStatus();
 }
 
