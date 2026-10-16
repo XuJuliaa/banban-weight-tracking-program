@@ -25,8 +25,6 @@ import {
   UNLOCK_PCT,
   weightSeries,
 } from './stats';
-import { profileSlug } from './names';
-import { profileFiles } from './profile-files';
 import type { UserData } from './types';
 import { pointsIn } from './units';
 import { folderSupported } from './folder-store';
@@ -99,7 +97,6 @@ export const dom = {
   exerciseTableSummary: el<HTMLElement>('exercise-table-summary'),
   exerciseTableBody: el<HTMLTableSectionElement>('exercise-table-body'),
   folderStatus: el<HTMLParagraphElement>('folder-status'),
-  folderFiles: el<HTMLUListElement>('folder-files'),
   importBtn: el<HTMLButtonElement>('import-btn'),
   importFile: el<HTMLInputElement>('import-file'),
   folderActions: el<HTMLDivElement>('folder-actions'),
@@ -357,7 +354,7 @@ const canFolder = () => folderSupported();
 const canDrive = () => false;
 
 export function renderFolder(status: UserdataStatus, path: string | null, user: UserData | null): void {
-  const saving = user ? `${user.name}'s data is saved to these files after every change:` : '';
+  const saving = user ? `${user.name}'s data is saved there as CSV files after every change.` : '';
   const account = driveAccount();
   const text: Record<UserdataStatus, string> = {
     unknown: 'Data folder: checking…',
@@ -387,21 +384,6 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
   ];
   for (const [button, show] of buttons) button.hidden = !show;
   dom.folderActions.hidden = !buttons.some(([, show]) => show);
-
-  const showFiles = (status === 'connected' || status === 'folder' || status === 'drive') && user !== null;
-  dom.folderFiles.hidden = !showFiles;
-  if (showFiles) {
-    const dir = status === 'connected' ? 'testdata' : path;
-    dom.folderFiles.replaceChildren(
-      ...profileFiles(profileSlug(user.name)).map((name) => {
-        const li = document.createElement('li');
-        const code = document.createElement('code');
-        code.textContent = `${dir}/${name}`;
-        li.append(code);
-        return li;
-      }),
-    );
-  }
 }
 
 /** True when data can be saved to files: the local testdata/ folder, a chosen folder, or Google Drive. */
