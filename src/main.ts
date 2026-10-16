@@ -12,7 +12,7 @@ import {
   setSyncErrorHandler,
 } from './storage';
 import { toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
-import { type DataKind, planImport, unzipCsvs, zipFiles } from './backup';
+import { applyMerge, type Conflict, type DataKind, type ImportPlan, mergeImport, planImport, unzipCsvs, zipFiles } from './backup';
 import {
   chooseFolder,
   closeAccount,
@@ -42,9 +42,11 @@ import { initThemePicker } from './theme';
 import { makeEntry } from './units';
 import {
   chooseExport,
+  chooseImport,
   confirmChange,
   dom,
   formatEntry,
+  formatWeight,
   renderChart,
   renderAccount,
   renderFolder,
@@ -60,9 +62,10 @@ import {
   type LoginMode,
   EXERCISE_TABS,
   type ExerciseTab,
+  type ImportConflictRow,
 } from './ui';
 import { categoryFromText, categoryLabel } from './food';
-import { exerciseCategoryFromText, validMinutes } from './exercise';
+import { type ExerciseCategoryId, exerciseCategoryFromText, exerciseCategoryLabel, validMinutes } from './exercise';
 
 /** The logged-in profile; null on the login page. */
 let current: UserData | null = null;
@@ -732,36 +735,36 @@ async function readPicked(picked: File[]): Promise<{ files: { name: string; text
   return { files: await Promise.all(csvs.map(async (f) => ({ name: f.name, text: await f.text() }))), ignored };
 }
 
-/**
- * Replaces the current profile's weight, food and/or exercise data with the picked files, one file per
- * kind (or an exported .zip), after one confirmation. Kinds without a file are left as they are.
- */
-async function importFiles(picked: File[]): Promise<void> {
-  if (!current) {
-    showToast('Create or select a profile first, then import your data');
-    return;
+const importNoun = (kind: DataKind, n: number) => `${n} ${n === 1 ? IMPORT_NOUN[kind][0] : IMPORT_NOUN[kind][1]}`;
+const importTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/** One import conflict as a row of the import dialog: when (and what), the profile's value and the file's. */
+function conflictRow(user: UserData, c: Conflict): ImportConflictRow {
+  const when = importTime.format(c.existing.timestamp);
+  if (c.kind === 'weight') {
+    const weight = (e: { kg: number; lb: number }) => `${formatWeight(e[user.unit])} ${user.unit}`;
+    return { id: c.id, label: when, mine: weight(c.existing), file: weight(c.incoming) };
   }
-  const user = current;
-  const { files, ignored } = await readPicked(picked);
-  const plan = planImport(files, user.unit);
-  const skipped = [...ignored, ...plan.ignored.map((i) => `${i.fileName} (${i.reason})`)];
-  const noun = (kind: DataKind, n: number) => `${n} ${n === 1 ? IMPORT_NOUN[kind][0] : IMPORT_NOUN[kind][1]}`;
+  const session = (x: { minutes: number; category: ExerciseCategoryId }) => `${x.minutes} min · ${exerciseCategoryLabel(x.category)}`;
+  return { id: c.id, label: `${when} · ${c.existing.name}`, mine: session(c.existing), file: session(c.incoming) };
+}
+
+/**
+ * Replaces the planned kinds of `user`'s data with the files' rows, after one confirmation. Kinds without a file
+ * are left as they are.
+ */
+async function replaceFromPlan(user: UserData, plan: ImportPlan, skipped: string[]): Promise<void> {
   const currentCounts: Record<DataKind, number> = {
     weight: user.entries.length,
     food: user.foods?.length ?? 0,
     exercise: user.exercises?.length ?? 0,
   };
   const kinds = (['weight', 'food', 'exercise'] as const).filter((k) => plan[k]);
-  if (!kinds.length) {
-    showToast(`Nothing to import${skipped.length ? `: ${skipped.join('; ')}` : ''}`);
-    return;
-  }
-
   const lines = kinds.map((k) => {
     const part = plan[k]!;
-    const replaceWith = part.rows.length ? `with ${noun(k, part.rows.length)}` : 'with nothing (it will be emptied)';
+    const replaceWith = part.rows.length ? `with ${importNoun(k, part.rows.length)}` : 'with nothing (it will be emptied)';
     const unreadable = part.unreadable.length ? `, skipping ${part.unreadable.length} unreadable line(s)` : '';
-    return `${KIND_LABEL[k]}: replace ${noun(k, currentCounts[k])} ${replaceWith} from ${part.fileName}${unreadable}`;
+    return `${KIND_LABEL[k]}: replace ${importNoun(k, currentCounts[k])} ${replaceWith} from ${part.fileName}${unreadable}`;
   });
   const kept = (['weight', 'food', 'exercise'] as const).filter((k) => !plan[k]).map((k) => KIND_LABEL[k].toLowerCase());
   if (kept.length) lines.push(`Unchanged: ${kept.join(' and ')}`);
@@ -781,6 +784,70 @@ async function importFiles(picked: File[]): Promise<void> {
   await saveUser(user);
   render();
   showToast(`Replaced ${kinds.map((k) => KIND_LABEL[k].toLowerCase()).join(', ')} for "${user.name}"`);
+}
+
+/**
+ * Imports the picked files (one per kind, or an exported .zip) into the current profile. By default they are
+ * merged: entries not logged yet are added, ones already logged are skipped, and entries at the same time with a
+ * different value are listed for the user to keep theirs or use the file's. Replace is offered instead, which
+ * overwrites each imported kind after a confirmation. Kinds without a file are left as they are.
+ */
+async function importFiles(picked: File[]): Promise<void> {
+  if (!current) {
+    showToast('Create or select a profile first, then import your data');
+    return;
+  }
+  const user = current;
+  const { files, ignored } = await readPicked(picked);
+  const plan = planImport(files, user.unit);
+  const skipped = [...ignored, ...plan.ignored.map((i) => `${i.fileName} (${i.reason})`)];
+  const kinds = (['weight', 'food', 'exercise'] as const).filter((k) => plan[k]);
+  if (!kinds.length) {
+    showToast(`Nothing to import${skipped.length ? `: ${skipped.join('; ')}` : ''}`);
+    return;
+  }
+
+  const merge = mergeImport(user, plan);
+  const lines = kinds.map((k) => {
+    const part = merge[k]!;
+    const already = part.duplicates ? ` (${part.duplicates} already logged)` : '';
+    const unreadable = plan[k]!.unreadable.length ? `, skipping ${plan[k]!.unreadable.length} unreadable line(s)` : '';
+    return `${KIND_LABEL[k]}: add ${importNoun(k, part.add.length)}${already}${unreadable}`;
+  });
+  const kept = (['weight', 'food', 'exercise'] as const).filter((k) => !plan[k]).map((k) => KIND_LABEL[k].toLowerCase());
+  if (kept.length) lines.push(`Unchanged: ${kept.join(' and ')}`);
+  if (skipped.length) lines.push(`Not imported: ${skipped.join('; ')}`);
+  const added = kinds.filter((k) => merge[k]!.add.length);
+  const canMerge = added.length > 0 || merge.conflicts.length > 0;
+  if (!canMerge) lines.push('Nothing new to add.');
+
+  const choice = await chooseImport({
+    title: `Import into "${user.name}"`,
+    lines,
+    conflicts: merge.conflicts.map((c) => conflictRow(user, c)),
+    canMerge,
+  });
+  if (!choice || current !== user) return;
+  if (choice.mode === 'replace') {
+    await replaceFromPlan(user, plan, skipped);
+    return;
+  }
+
+  const next = applyMerge(user, merge, choice.useFile);
+  user.entries = next.entries;
+  user.foods = next.foods;
+  user.exercises = next.exercises;
+  await saveUser(user);
+  render();
+  const used = merge.conflicts.filter((c) => choice.useFile.has(c.id)).length;
+  const resolved = merge.conflicts.length ? `kept ${merge.conflicts.length - used} of yours, used ${used} from the file` : '';
+  const addedText = added.map((k) => importNoun(k, merge[k]!.add.length));
+  const list = addedText.length > 1 ? `${addedText.slice(0, -1).join(', ')} and ${addedText[addedText.length - 1]}` : addedText[0];
+  showToast(
+    list
+      ? `Added ${list} to "${user.name}"${resolved ? `; ${resolved}` : ''}`
+      : `Updated "${user.name}": ${resolved}`,
+  );
 }
 
 dom.importBtn.addEventListener('click', () => dom.importFile.click());

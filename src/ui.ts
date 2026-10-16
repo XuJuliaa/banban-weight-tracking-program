@@ -118,6 +118,15 @@ export const dom = {
   overrideUnit: el<HTMLSpanElement>('override-unit'),
   overrideCurrent: el<HTMLParagraphElement>('override-current'),
   exportDialog: el<HTMLDialogElement>('export-dialog'),
+  importDialog: el<HTMLDialogElement>('import-dialog'),
+  importTitle: el<HTMLHeadingElement>('import-title'),
+  importSummary: el<HTMLUListElement>('import-summary'),
+  importConflicts: el<HTMLDivElement>('import-conflicts'),
+  importConflictsText: el<HTMLParagraphElement>('import-conflicts-text'),
+  importKeepMine: el<HTMLButtonElement>('import-keep-mine'),
+  importUseFile: el<HTMLButtonElement>('import-use-file'),
+  importConflictList: el<HTMLDivElement>('import-conflict-list'),
+  importMerge: el<HTMLButtonElement>('import-merge'),
   confirmDialog: el<HTMLDialogElement>('confirm-dialog'),
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
@@ -144,7 +153,7 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 
-const formatWeight = (w: number) => w.toFixed(1);
+export const formatWeight = (w: number) => w.toFixed(1);
 
 /** The top bar: who is logged in, with Log out. Hidden on the login page. */
 export function renderAccount(name: string | null): void {
@@ -523,6 +532,94 @@ export function chooseExport(): Promise<'zip' | 'csv' | null> {
       () => {
         const value = dom.exportDialog.returnValue;
         resolve(value === 'zip' || value === 'csv' ? value : null);
+      },
+      { once: true },
+    );
+  });
+}
+
+/** One conflict row: an entry already logged vs the file's row for the same time. Text is pre-formatted by the caller. */
+export interface ImportConflictRow {
+  id: string; // e.g. "weight:w2"
+  label: string; // e.g. "Oct 2, 8:00 AM" or "Oct 1, 6:00 PM · Morning run"
+  mine: string; // e.g. "149.0 lb" or "30 min · Cardio"
+  file: string; // e.g. "151.4 lb" or "45 min · Cardio"
+}
+
+export interface ImportChoice {
+  mode: 'merge' | 'replace';
+  /** Ids of the conflicts where the user chose the file's value (all others keep theirs). */
+  useFile: Set<string>;
+}
+
+/** Sets every conflict radio in the import dialog to `value` ("mine" or "file"). */
+function setAllImportConflicts(value: 'mine' | 'file'): void {
+  for (const radio of dom.importConflictList.querySelectorAll<HTMLInputElement>(`input[type="radio"][value="${value}"]`)) {
+    radio.checked = true;
+  }
+}
+
+dom.importKeepMine.addEventListener('click', () => setAllImportConflicts('mine'));
+dom.importUseFile.addEventListener('click', () => setAllImportConflicts('file'));
+
+/** One "Mine: …" / "File: …" radio option for a conflict row. */
+function importConflictOption(name: string, value: 'mine' | 'file', text: string): HTMLLabelElement {
+  const label = document.createElement('label');
+  const radio = document.createElement('input');
+  radio.type = 'radio';
+  radio.name = name;
+  radio.value = value;
+  radio.checked = value === 'mine';
+  label.append(radio, ` ${text}`);
+  return label;
+}
+
+/**
+ * Shows the import dialog: `lines` as a bullet summary, then (if any) the conflicts with "Keep all mine" /
+ * "Use all from file" buttons and a Mine/File radio pair per row ("Mine" preselected). Buttons: Merge
+ * (disabled when !canMerge), "Replace instead…", Cancel. Resolves null on cancel / Esc.
+ */
+export function chooseImport(opts: { title: string; lines: string[]; conflicts: ImportConflictRow[]; canMerge: boolean }): Promise<ImportChoice | null> {
+  dom.importTitle.textContent = opts.title;
+  dom.importSummary.replaceChildren(
+    ...opts.lines.map((line) => {
+      const li = document.createElement('li');
+      li.textContent = line;
+      return li;
+    }),
+  );
+  const count = opts.conflicts.length;
+  dom.importConflicts.hidden = count === 0;
+  dom.importConflictsText.textContent =
+    count === 1 ? '1 entry differs from the file. Choose which to keep.' : `${count} entries differ from the file. Choose which to keep.`;
+  dom.importConflictList.replaceChildren(
+    ...opts.conflicts.map((row, index) => {
+      const fieldset = document.createElement('fieldset');
+      const legend = document.createElement('legend');
+      legend.textContent = row.label;
+      const name = `conflict-${index}`;
+      fieldset.append(legend, importConflictOption(name, 'mine', `Mine: ${row.mine}`), importConflictOption(name, 'file', `File: ${row.file}`));
+      return fieldset;
+    }),
+  );
+  dom.importMerge.disabled = !opts.canMerge;
+  dom.importDialog.returnValue = '';
+  dom.importDialog.showModal();
+  return new Promise((resolve) => {
+    dom.importDialog.addEventListener(
+      'close',
+      () => {
+        const mode = dom.importDialog.returnValue;
+        if (mode !== 'merge' && mode !== 'replace') {
+          resolve(null);
+          return;
+        }
+        const useFile = new Set<string>();
+        opts.conflicts.forEach((row, index) => {
+          const picked = dom.importConflictList.querySelector<HTMLInputElement>(`input[name="conflict-${index}"]:checked`);
+          if (picked?.value === 'file') useFile.add(row.id);
+        });
+        resolve({ mode, useFile });
       },
       { once: true },
     );

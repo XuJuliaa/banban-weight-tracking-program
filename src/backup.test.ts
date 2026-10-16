@@ -1,6 +1,9 @@
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { detectCsvKind, planImport, unzipCsvs, zipFiles } from './backup';
+import { applyMerge, detectCsvKind, mergeImport, planImport, unzipCsvs, zipFiles } from './backup';
+import { toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import type { UserData } from './types';
+import { makeEntry } from './units';
 
 const WEIGHT = 'timestamp,weight_kg,weight_lb,entered_unit\n2026-10-01T08:00:00,70,154.32,kg\n2026-10-02T08:00:00,69.5,153.22,kg\n';
 const FOOD = 'timestamp,food,category\n2026-10-01T12:00:00,"rice, beans",Grains & starches\n';
@@ -86,5 +89,90 @@ describe('planImport', () => {
     const plan = planImport([{ name: 'w.csv', text: `${WEIGHT}not-a-date,70,,kg\n` }], 'kg');
     expect(plan.weight?.rows).toHaveLength(2);
     expect(plan.weight?.unreadable).toEqual([4]);
+  });
+});
+
+describe('mergeImport and applyMerge', () => {
+  const at = (day: number, hour = 8, min = 0, sec = 0) => new Date(2026, 9, day, hour, min, sec).getTime();
+  const profile = (): UserData => ({
+    version: 1,
+    userId: 'u1',
+    name: 'Juju',
+    unit: 'lb',
+    entries: [makeEntry('w1', at(1), 150, 'lb'), makeEntry('w2', at(2), 149, 'lb')],
+    foods: [{ id: 'f1', timestamp: at(1, 12), text: 'Oatmeal', category: 'grains' }],
+    exercises: [{ id: 'x1', timestamp: at(1, 18), name: 'Morning run', category: 'cardio', minutes: 30 }],
+  });
+  const plan = (files: Record<string, string>) =>
+    planImport(Object.entries(files).map(([name, text]) => ({ name, text })), 'lb');
+  const exportOf = (user: UserData) => ({ 'w.csv': toWeightCsv(user), 'f.csv': toFoodCsv(user), 'e.csv': toExerciseCsv(user) });
+  let n = 0;
+  const ids = () => `new${n++}`;
+
+  it('finds nothing new in a re-import of our own export', () => {
+    const user = profile();
+    const merge = mergeImport(user, plan(exportOf(user)));
+    expect([merge.weight?.add, merge.food?.add, merge.exercise?.add]).toEqual([[], [], []]);
+    expect([merge.weight?.duplicates, merge.food?.duplicates, merge.exercise?.duplicates]).toEqual([2, 1, 1]);
+    expect(merge.conflicts).toEqual([]);
+  });
+
+  it('adds only what an older backup has that the profile lacks', () => {
+    const backup = profile();
+    backup.entries.push(makeEntry('w0', at(5), 147, 'lb'));
+    const user = profile();
+    user.entries.push(makeEntry('w9', at(9), 146, 'lb'));
+    const merge = mergeImport(user, plan(exportOf(backup)));
+    expect(merge.weight?.add.map((r) => r.timestamp)).toEqual([at(5)]);
+    const merged = applyMerge(user, merge, new Set(), ids);
+    expect(merged.entries.map((e) => e.timestamp).sort()).toEqual([at(1), at(2), at(5), at(9)]);
+  });
+
+  it('treats a weigh-in in the same minute as the same one, and a different weight as a conflict', () => {
+    const user = profile();
+    const csv = 'timestamp,weight,unit\n2026-10-01T08:00:42,150,lb\n2026-10-02T08:00:00,151.4,lb\n';
+    const merge = mergeImport(user, plan({ 'w.csv': csv }));
+    expect(merge.weight).toEqual({ add: [], duplicates: 1 });
+    expect(merge.conflicts).toHaveLength(1);
+    expect(merge.conflicts[0]).toMatchObject({ id: 'weight:w2', kind: 'weight', existing: { lb: 149 }, incoming: { lb: 151.4 } });
+  });
+
+  it('keeps logged entries unless the file is chosen, and keeps their ids', () => {
+    const user = profile();
+    const merge = mergeImport(user, plan({ 'w.csv': 'timestamp,weight,unit\n2026-10-01T08:00:00,152,lb\n2026-10-02T08:00:00,151,lb\n' }));
+    expect(merge.conflicts.map((c) => c.id)).toEqual(['weight:w1', 'weight:w2']);
+    const kept = applyMerge(user, merge, new Set(), ids);
+    expect(kept.entries.map((e) => e.lb)).toEqual([150, 149]);
+    const mixed = applyMerge(user, merge, new Set(['weight:w2']), ids);
+    expect(mixed.entries.map((e) => [e.id, e.lb])).toEqual([['w1', 150], ['w2', 151]]);
+    const all = applyMerge(user, merge, new Set(merge.conflicts.map((c) => c.id)), ids);
+    expect(all.entries.map((e) => e.lb)).toEqual([152, 151]);
+  });
+
+  it('adds a different food at the same time and skips the same food in another case', () => {
+    const user = profile();
+    const merge = mergeImport(user, plan({ 'f.csv': 'timestamp,food\n2026-10-01T12:00:00,OATMEAL \n2026-10-01T12:00:00,Banana\n' }));
+    expect(merge.food).toEqual({ add: [{ timestamp: at(1, 12), text: 'Banana' }], duplicates: 1 });
+    expect(merge.conflicts).toEqual([]);
+  });
+
+  it('lists an exercise with the same time and activity but other minutes as a conflict', () => {
+    const user = profile();
+    const merge = mergeImport(user, plan({ 'e.csv': 'timestamp,activity,category,minutes\n2026-10-01T18:00:00,morning run,Cardio,45\n' }));
+    expect(merge.exercise).toEqual({ add: [], duplicates: 0 });
+    expect(merge.conflicts).toMatchObject([{ id: 'exercise:x1', existing: { minutes: 30 }, incoming: { minutes: 45 } }]);
+    expect(applyMerge(user, merge, new Set(['exercise:x1']), ids).exercises[0]).toMatchObject({ id: 'x1', minutes: 45 });
+  });
+
+  it('adds rows repeated within a file once', () => {
+    const user = { ...profile(), entries: [], foods: [], exercises: [] };
+    const merge = mergeImport(
+      user,
+      plan({
+        'w.csv': 'timestamp,weight,unit\n2026-10-03T08:00:00,150,lb\n2026-10-03T08:00:00,150,lb\n',
+        'f.csv': 'timestamp,food\n2026-10-03T12:00:00,Soup\n2026-10-03T12:00:00,soup\n',
+      }),
+    );
+    expect([merge.weight?.add.length, merge.weight?.duplicates, merge.food?.add.length, merge.food?.duplicates]).toEqual([1, 1, 1, 1]);
   });
 });

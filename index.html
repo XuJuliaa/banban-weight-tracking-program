@@ -370,6 +370,26 @@
       </form>
     </dialog>
 
+    <dialog id="import-dialog" class="confirm-dialog" aria-labelledby="import-title">
+      <form method="dialog">
+        <h2 id="import-title">Import data</h2>
+        <ul id="import-summary"></ul>
+        <div id="import-conflicts" hidden>
+          <p id="import-conflicts-text"></p>
+          <div class="button-row">
+            <button type="button" id="import-keep-mine" class="secondary">Keep all mine</button>
+            <button type="button" id="import-use-file" class="secondary">Use all from file</button>
+          </div>
+          <div id="import-conflict-list" class="import-conflict-list"></div>
+        </div>
+        <div class="button-row">
+          <button type="submit" value="merge" id="import-merge">Merge</button>
+          <button type="submit" value="replace" class="secondary">Replace instead…</button>
+          <button type="submit" value="cancel" class="secondary" formnovalidate autofocus>Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
       <form method="dialog">
         <h2 id="confirm-title"></h2>

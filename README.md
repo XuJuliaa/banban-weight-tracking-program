@@ -108,7 +108,10 @@ npm run dev        # serves http://localhost:5173
 
   Each has a matching dark mode that follows the system setting. Chart category colors come from a palette checked for color-blind separation and contrast.
 - **Required data folder on a hosted site.** Creating an account includes choosing the [folder on your computer](#saving-to-a-folder-on-a-hosted-site) where its CSV files are saved.
-- **Backup and restore.** **Export data…** downloads the weight, food and exercise logs as one .zip or as three CSV files. **Import data…** takes that .zip or any one, two or three of the CSVs; each file picked replaces that log, and the others stay as they are.
+- **Backup and restore.** **Export data…** downloads the weight, food and exercise logs as one .zip or as three CSV files. **Import data…** takes that .zip or any one, two or three of the CSVs (recognised by their columns, not their names).
+  - **Merge (default).** Entries that aren't logged yet are added; ones already logged are skipped. Importing the same file twice adds nothing.
+  - **Conflicts.** A weigh-in at the same minute with a different weight, or an exercise at the same time with a different length or category, is listed in the import dialog. Pick **Keep all mine** or **Use all from file**, or **Mine** / **File** per entry. **Mine** is preselected; **File** overwrites that entry.
+  - **Replace instead…** Each file picked replaces that whole log (after a warning); logs without a file stay as they are.
 - **Works offline and installs like an app** (PWA). On a phone, use *Add to Home Screen*.
 
 ---
@@ -127,7 +130,7 @@ npm run dev        # serves http://localhost:5173
 | See a week of exercise | **Exercise** card → **Summary** tab |
 | See daily cardio minutes | **Exercise** card → **Cardio** tab |
 | Back up my data | **Data & backup** → Export data… → One .zip file or 3 CSV files |
-| Restore a backup | **Data & backup** → Import data… → pick the .zip or up to three CSVs |
+| Restore a backup | **Data & backup** → Import data… → pick the .zip or up to three CSVs. Merges by default; **Replace instead…** overwrites the logs |
 | Pick the data folder (hosted site) | When creating an account; later **Data & backup** → **Change folder…** |
 | Switch person | **Log out** in the header, then log in as someone else |
 | Change colors | The swatches next to the title |
@@ -210,7 +213,7 @@ Browsers only reveal the folder's name to the page, not its full path.
 - **Narrow permission.** The app asks only for `drive.file`, so it can see the files it created and nothing else in your Drive.
 - **Signing in again.** Google's sign-in lasts an hour and isn't kept between visits. After a reload, and after an hour, the app shows **Sign in to Google** (one tap) before you can log anything. Only the profile's own Google account is accepted.
 - **Several devices.** The phone and the computer use the same files. When you come back to the tab, the open profile reloads from Drive. Saves replace whole files, so the last save wins.
-- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use **Import data…** to bring existing data in.
+- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use **Import data…** to bring existing data in; it merges with what's already there.
 - **Log out** also signs out of Google. The files stay in Drive.
 
 #### One-time setup (by whoever hosts the site)
@@ -270,6 +273,13 @@ timestamp,activity,category,minutes
 ```
 The category is `Cardio`, `Strength` or `Flexibility`; minutes run from 1 to 1440. Rows that don't fit are skipped when reading.
 
+**Matching on import.** When merging, times are compared to the minute. A row counts as already logged when:
+- **weight:** same minute and same weight
+- **food:** same minute and same food text (case and spaces ignored). A different food at the same time is simply added.
+- **exercise:** same minute, same activity, same minutes and category
+
+Same minute with a different weight, or the same exercise time and activity with different minutes or category, is a conflict to resolve in the dialog.
+
 ---
 
 ## Sample data
@@ -277,7 +287,7 @@ These are made-up data for trying the charts. The generators are seeded, so they
 
 | Command | Writes |
 | --- | --- |
-| `npm run sample-data` | `test/data/juju-60d.csv`: 60 days of weigh-ins (about 72 → 69.5 kg), ending today. Import it with **Import data…** into a kg profile named **Juju** (this replaces its weigh-ins). |
+| `npm run sample-data` | `test/data/juju-60d.csv`: 60 days of weigh-ins (about 72 → 69.5 kg), ending today. Import it with **Import data…** into a kg profile named **Juju**. It merges with existing weigh-ins; use **Replace instead…** to start over. |
 | `npm run sample-food` | 60 days of meals in `testdata/juju-food.csv`. Backs up the current file to `testdata/.migrated/` first and keeps existing rows. |
 | `npm run sample-exercise` | 60 days of workouts in `testdata/juju-exercise.csv`. Backs up an existing file first and keeps existing rows. |
 
@@ -336,7 +346,7 @@ The tests cover:
 - food counts, the exercise summary and daily minutes
 - the chart geometry: monotone curve, pie slices and bar shapes
 - the folder file layout (in memory and on disk): writing, reading, validation and migration
-- import and export: recognising files, zip round trips, the import plan
+- import and export: recognising files, zip round trips, the import plan, merging, duplicates and conflicts
 - the Google Drive store, against a fake Drive API
 - Google login: the session, the profile name and keeping Google profiles apart from username ones
 

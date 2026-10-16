@@ -582,6 +582,14 @@ code { font-size: 0.85em; }
 .confirm-dialog ul { margin: 0 0 8px; padding-left: 20px; }
 .confirm-dialog .warning { color: var(--danger); font-weight: 600; }
 
+/* Import pop-up: per-entry conflict choices */
+.import-conflict-list { max-height: 40vh; overflow-y: auto; display: grid; gap: 8px; margin: 8px 0; }
+.import-conflict-list fieldset { margin: 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; display: flex; flex-wrap: wrap; gap: 4px 16px; min-width: 0; }
+.import-conflict-list legend { padding: 0 4px; font-size: 0.9rem; font-weight: 600; color: var(--text); }
+.import-conflict-list label { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 0.9rem; color: var(--muted); overflow-wrap: anywhere; }
+.import-conflict-list input[type="radio"] { accent-color: var(--accent); margin: 0; padding: 0; min-height: 0; width: 18px; height: 18px; flex: none; }
+.import-conflict-list label:has(input:checked) { color: var(--text); }
+
 /* Food breakdown pie. Category colours: validated categorical palette slots 1-6 (fixed per category). */
 :root {
   --cat-protein: #2a78d6;
