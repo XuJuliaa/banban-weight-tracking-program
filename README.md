@@ -341,17 +341,11 @@ The tests cover:
 ---
 
 ## Hosting on GitHub Pages
-The app is a static site, so hosting is free. A GitHub Actions workflow (`.github/workflows/deploy.yml`, not added to the repo yet) will run the tests, build, and deploy to GitHub Pages on every push to `main`.
+The app is a static site, hosted free on GitHub Pages at **https://xujuliaa.github.io/banban-weight-tracking-program/**.
 
-Adding a workflow file needs a token with the `workflow` scope.
+A GitHub Actions workflow (`.github/workflows/deploy.yml`) runs the tests, builds, and deploys on every push to `main`, so merging a PR updates the site within a few minutes. It can also be run by hand from the **Actions** tab. Pages is set to **Settings → Pages → Source: GitHub Actions**.
 
-Once the workflow is added, turn Pages on once:
-1. In the repo on GitHub, open **Settings → Pages**.
-2. Set **Source** to **GitHub Actions**.
-
-The site is then served at `https://<user>.github.io/banban-weight-tracking-program/`. If you rename the repo, also update `REPO_BASE` in `vite.config.ts`.
-
-> GitHub Pages on a **private** repo needs a paid plan (GitHub Pro / Team). Otherwise make the repo public, or use another static host such as Cloudflare Pages or Netlify, with `npm run build` as the build command and `dist` as the output folder.
+If you rename the repo, also update `REPO_BASE` in `vite.config.ts`. Changing the workflow file needs a GitHub token with the `workflow` scope.
 
 On a hosted site there is no `testdata/` folder. Each visitor saves to a folder on their own computer (Chrome/Edge) or to their own Google Drive. The CSV exports remain available as an extra backup.
 
