@@ -34,14 +34,17 @@ async function upsertProfile(summary: ProfileSummary): Promise<void> {
   await set(PROFILES_KEY, profiles);
 }
 
-/** The browser's profile with this name (same rule as file names: case and punctuation don't matter). */
+/**
+ * The browser's username profile with this name (same rule as file names: case and punctuation don't matter).
+ * Google profiles are left out: they only open by signing in to their Google account.
+ */
 export async function findProfileByName(name: string): Promise<ProfileSummary | undefined> {
   const slug = profileSlug(name);
-  return (await listProfiles()).find((p) => profileSlug(p.name) === slug);
+  return (await listProfiles()).find((p) => !p.googleEmail && profileSlug(p.name) === slug);
 }
 
 /** Stores a profile loaded from testdata/ in this browser, reusing the browser's id if it already has it. */
-async function storeFromFiles(data: FileProfileData, userId: string, updatedAt?: number): Promise<UserData> {
+async function storeFromFiles(data: FileProfileData, userId: string, updatedAt?: number, googleEmail?: string): Promise<UserData> {
   const user: UserData = {
     version: 1,
     userId,
@@ -51,10 +54,36 @@ async function storeFromFiles(data: FileProfileData, userId: string, updatedAt?:
     foods: data.foods,
     exercises: data.exercises,
     updatedAt: updatedAt ?? Date.now(),
+    ...(googleEmail ? { googleEmail } : {}),
   };
   await set(userKey(userId), user);
-  await upsertProfile({ userId, name: user.name });
+  await upsertProfile(summaryOf(user));
   return user;
+}
+
+const summaryOf = (user: UserData): ProfileSummary => ({
+  userId: user.userId,
+  name: user.name,
+  ...(user.googleEmail ? { googleEmail: user.googleEmail } : {}),
+});
+
+/**
+ * Opens the profile of a Google account, saved in its Drive: the Drive files win if there are any (as with a
+ * folder); otherwise this browser's copy of the same account, or a new profile, is written to Drive.
+ * A username profile with the same name is never used.
+ */
+export async function openGoogleProfile(name: string, email: string): Promise<{ user: UserData; existed: boolean }> {
+  const local = (await listProfiles()).find((p) => p.googleEmail === email);
+  const localUser = local && (await loadUser(local.userId));
+  const fromFiles = await fetchProfile(localUser?.name ?? name);
+  if (fromFiles) return { user: await storeFromFiles(fromFiles, localUser?.userId ?? crypto.randomUUID(), undefined, email), existed: true };
+  if (localUser) {
+    await saveUser(localUser);
+    return { user: localUser, existed: true };
+  }
+  const data: UserData = { version: 1, userId: crypto.randomUUID(), name, unit: 'kg', entries: [], foods: [], exercises: [], googleEmail: email };
+  await saveUser(data);
+  return { user: data, existed: false };
 }
 
 /**
@@ -116,7 +145,7 @@ export async function loadUserFromFiles(user: UserData): Promise<UserData> {
     await mirror(() => pushUserFiles(user));
     return user;
   }
-  return storeFromFiles(data, user.userId, user.updatedAt);
+  return storeFromFiles(data, user.userId, user.updatedAt, user.googleEmail);
 }
 
 /** A profile from this browser. Entries saved before both units were stored are upgraded as they're read. */
@@ -131,7 +160,7 @@ export async function loadUser(userId: string): Promise<UserData | undefined> {
 export async function saveUser(data: UserData): Promise<void> {
   data.updatedAt = Date.now();
   await set(userKey(data.userId), data);
-  await upsertProfile({ userId: data.userId, name: data.name });
+  await upsertProfile(summaryOf(data));
   await mirror(() => pushUserFiles(data));
 }
 

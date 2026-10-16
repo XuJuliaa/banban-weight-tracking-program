@@ -1,4 +1,4 @@
-// Google Drive as the data folder: the same CSV files, kept in a "Weight Tracker" folder in the user's
+// Google Drive as the data folder: the same CSV files, kept in a "BanBan Weight Tracker" folder in the user's
 // own Drive. Works in any browser, phones included. Everything runs in the page: Google Identity
 // Services signs the user in and hands out a short-lived access token (kept in memory only), and the
 // Drive REST API is called with fetch. The drive.file permission only lets the app see files it created.
@@ -38,7 +38,7 @@ const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const GIS_URL = 'https://accounts.google.com/gsi/client';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-export const DRIVE_FOLDER_NAME = 'Weight Tracker';
+export const DRIVE_FOLDER_NAME = 'BanBan Weight Tracker';
 const STATE_KEY = 'driveState';
 
 /** True when this build has a Google client ID (VITE_GOOGLE_CLIENT_ID), so Drive can be offered. */
@@ -148,27 +148,56 @@ async function json<T>(res: Response): Promise<T> {
 
 const quote = (value: string) => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
-/** The signed-in account's email address. */
-export async function driveEmail(getToken: GetToken): Promise<string> {
-  const body = await json<{ user?: { emailAddress?: string } }>(await driveFetch(getToken, `${API}/about?fields=user(emailAddress)`));
-  return body.user?.emailAddress ?? '';
+/** The signed-in account's email address and name (Drive's "about" call, so no extra permission is needed). */
+export async function driveUser(getToken: GetToken): Promise<{ email: string; displayName: string }> {
+  const body = await json<{ user?: { emailAddress?: string; displayName?: string } }>(
+    await driveFetch(getToken, `${API}/about?fields=user(emailAddress,displayName)`),
+  );
+  return { email: body.user?.emailAddress ?? '', displayName: body.user?.displayName ?? '' };
 }
 
-/** The app's "Weight Tracker" folder in the user's Drive, created on first use. Returns its id. */
+/** Names the app's Drive folder had before; such a folder is renamed and reused rather than starting a new one. */
+const OLD_FOLDER_NAMES = ['Weight Tracker', "Banban's Weight Tracker Data"];
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+/**
+ * The app's "BanBan Weight Tracker" folder in the user's Drive, created on first use. Returns its id.
+ * A folder the app made under an older name is renamed and used instead.
+ */
 export async function ensureFolder(getToken: GetToken): Promise<string> {
-  const q = `mimeType='application/vnd.google-apps.folder' and name=${quote(DRIVE_FOLDER_NAME)} and trashed=false`;
-  const found = await json<{ files: { id: string }[] }>(
-    await driveFetch(getToken, `${API}/files?q=${encodeURIComponent(q)}&fields=files(id)&spaces=drive`),
+  const names = [DRIVE_FOLDER_NAME, ...OLD_FOLDER_NAMES].map((n) => `name=${quote(n)}`).join(' or ');
+  const q = `mimeType='${FOLDER_MIME}' and (${names}) and trashed=false`;
+  const found = await json<{ files: { id: string; name: string }[] }>(
+    await driveFetch(getToken, `${API}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive`),
   );
-  if (found.files[0]) return found.files[0].id;
+  const current = found.files.find((f) => f.name === DRIVE_FOLDER_NAME) ?? found.files[0];
+  if (current) {
+    if (current.name !== DRIVE_FOLDER_NAME) await nameFolder(getToken, current.id);
+    return current.id;
+  }
   const created = await json<{ id: string }>(
     await driveFetch(getToken, `${API}/files?fields=id`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
+      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: FOLDER_MIME }),
     }),
   );
   return created.id;
+}
+
+/**
+ * Gives the app's folder `folderId` its current name (it may have an older one). False when the folder is
+ * gone, so the caller can look for or create it again.
+ */
+export async function nameFolder(getToken: GetToken, folderId: string): Promise<boolean> {
+  const res = await driveFetch(getToken, `${API}/files/${folderId}?fields=id`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: DRIVE_FOLDER_NAME }),
+  });
+  if (res.status === 404) return false;
+  await json(res);
+  return true;
 }
 
 /** The Drive folder `folderId` as a TextStore. File ids are looked up by name and cached. */
