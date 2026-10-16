@@ -90,11 +90,11 @@ describe('driveTextStore', () => {
     await expect(driveTextStore(getToken, 'folder1').list()).rejects.toBeInstanceOf(DriveAuthError);
   });
 
-  it('creates the Weight Tracker folder when it does not exist', async () => {
+  it("creates the Banban's Weight Tracker Data folder when it does not exist", async () => {
     const drive = fakeDrive();
     expect(await ensureFolder(token)).toBe('folder1');
-    expect(decodeURIComponent(drive.calls[0].url)).toContain("name='Weight Tracker'");
-    expect(JSON.parse(drive.calls[1].body!)).toEqual({ name: 'Weight Tracker', mimeType: 'application/vnd.google-apps.folder' });
+    expect(decodeURIComponent(drive.calls[0].url)).toContain("name='Banban\\'s Weight Tracker Data'");
+    expect(JSON.parse(drive.calls[1].body!)).toEqual({ name: "Banban's Weight Tracker Data", mimeType: 'application/vnd.google-apps.folder' });
   });
 });
 
