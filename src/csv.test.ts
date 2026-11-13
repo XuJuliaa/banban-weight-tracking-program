@@ -13,8 +13,18 @@ describe('parseTimestamp', () => {
     expect(parseTimestamp('2026-08-13T07:42:00+02:00')).toBe(Date.UTC(2026, 7, 13, 5, 42));
   });
 
+  it('reads dates the way Google Sheets exports them after a user edits the file', () => {
+    expect(parseTimestamp('2026-08-13 7:42:00')).toBe(new Date(2026, 7, 13, 7, 42).getTime());
+    expect(parseTimestamp('2026-8-3 7:42')).toBe(new Date(2026, 7, 3, 7, 42).getTime());
+    expect(parseTimestamp('2026-08-13 7:42:00 PM')).toBe(new Date(2026, 7, 13, 19, 42).getTime());
+    expect(parseTimestamp('2026-08-13 12:05 AM')).toBe(new Date(2026, 7, 13, 0, 5).getTime());
+    expect(parseTimestamp('2026-08-13')).toBe(new Date(2026, 7, 13).getTime());
+  });
+
   it('rejects impossible or malformed dates', () => {
     expect(parseTimestamp('2026-02-31T08:00:00')).toBeNull();
+    expect(parseTimestamp('2026-08-13 25:00')).toBeNull();
+    expect(parseTimestamp('2026-08-13 13:00 PM')).toBeNull();
     expect(parseTimestamp('13/08/2026 07:42')).toBeNull();
     expect(parseTimestamp('')).toBeNull();
   });
@@ -22,6 +32,11 @@ describe('parseTimestamp', () => {
 
 describe('parseWeightCsv', () => {
   const t = (d: number, h = 7, m = 42) => new Date(2026, 7, d, h, m).getTime();
+
+  it('reads a Google Sheets export: quoted decimal commas and reformatted dates', () => {
+    const csv = 'timestamp,weight_kg,weight_lb,entered_unit\r\n2026-08-13 7:42:00,"72,1",,kg\r\n,,,\r\n';
+    expect(parseWeightCsv(csv, 'kg').entries).toEqual([{ timestamp: t(13), kg: 72.1, lb: expect.closeTo(158.95, 2), entered: 'kg' }]);
+  });
 
   it('requires a header with timestamp and a weight column', () => {
     expect(() => parseWeightCsv('2026-08-13T07:42:00,72.1\n', 'kg')).toThrow(/header/);

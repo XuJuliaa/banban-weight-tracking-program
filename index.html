@@ -345,47 +345,30 @@
             <button type="button" class="secondary" id="sign-out-drive-btn">Sign out of Google Drive</button>
           </div>
           <p>
-            Export your weight, food and exercise data now and then as a backup, as one .zip or three CSV files. Import takes
-            that .zip or any of the three CSVs; each file you pick replaces that part of your data.
+            Export downloads your weight, food and exercise data as one .zip of CSV files, as a backup. To add or fix
+            entries in bulk, edit the files in your data folder directly.
           </p>
           <div class="button-row">
-            <button type="button" class="secondary" id="export-btn">Export data…</button>
-            <button type="button" class="secondary" id="import-btn">Import data…</button>
-            <input type="file" id="import-file" multiple accept=".csv,.zip,text/csv,application/zip" hidden />
+            <button type="button" class="secondary" id="export-btn">Export data (.zip)</button>
+            <button type="button" class="secondary" id="edit-data-btn">Edit data…</button>
           </div>
         </section>
       </div>
     </main>
 
-    <dialog id="export-dialog" class="confirm-dialog" aria-labelledby="export-title">
+    <dialog id="edit-dialog" class="confirm-dialog" aria-labelledby="edit-title">
       <form method="dialog">
-        <h2 id="export-title">Export data</h2>
-        <p>Download your weight, food and exercise data as one .zip file or as three CSV files.</p>
-        <p class="muted small">For three files, your browser may ask to allow multiple downloads.</p>
+        <h2 id="edit-title">Edit your data</h2>
+        <p id="edit-where"></p>
+        <ul id="edit-files" class="edit-files"></ul>
+        <p id="edit-how" class="muted small"></p>
+        <p class="muted small">
+          Keep the header row. Write dates as <code>YYYY-MM-DD HH:MM</code>, e.g. <code>2026-11-13 07:30</code>.
+          Rows the app can't read are left out.
+        </p>
         <div class="button-row">
-          <button type="submit" value="zip">One .zip file</button>
-          <button type="submit" value="csv">3 CSV files</button>
-          <button type="submit" value="cancel" class="secondary" formnovalidate autofocus>Cancel</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="import-dialog" class="confirm-dialog" aria-labelledby="import-title">
-      <form method="dialog">
-        <h2 id="import-title">Import data</h2>
-        <ul id="import-summary"></ul>
-        <div id="import-conflicts" hidden>
-          <p id="import-conflicts-text"></p>
-          <div class="button-row">
-            <button type="button" id="import-keep-mine" class="secondary">Keep all mine</button>
-            <button type="button" id="import-use-file" class="secondary">Use all from file</button>
-          </div>
-          <div id="import-conflict-list" class="import-conflict-list"></div>
-        </div>
-        <div class="button-row">
-          <button type="submit" value="merge" id="import-merge">Merge</button>
-          <button type="submit" value="replace" class="secondary">Replace instead…</button>
-          <button type="submit" value="cancel" class="secondary" formnovalidate autofocus>Cancel</button>
+          <button type="submit" value="reload" id="edit-reload">I'm done, reload</button>
+          <button type="submit" value="close" class="secondary" formnovalidate autofocus>Close</button>
         </div>
       </form>
     </dialog>

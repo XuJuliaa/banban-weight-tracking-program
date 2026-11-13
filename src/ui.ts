@@ -97,8 +97,7 @@ export const dom = {
   exerciseTableSummary: el<HTMLElement>('exercise-table-summary'),
   exerciseTableBody: el<HTMLTableSectionElement>('exercise-table-body'),
   folderStatus: el<HTMLParagraphElement>('folder-status'),
-  importBtn: el<HTMLButtonElement>('import-btn'),
-  importFile: el<HTMLInputElement>('import-file'),
+  editDataBtn: el<HTMLButtonElement>('edit-data-btn'),
   folderActions: el<HTMLDivElement>('folder-actions'),
   chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
   reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
@@ -117,16 +116,10 @@ export const dom = {
   overrideWeight: el<HTMLInputElement>('override-weight'),
   overrideUnit: el<HTMLSpanElement>('override-unit'),
   overrideCurrent: el<HTMLParagraphElement>('override-current'),
-  exportDialog: el<HTMLDialogElement>('export-dialog'),
-  importDialog: el<HTMLDialogElement>('import-dialog'),
-  importTitle: el<HTMLHeadingElement>('import-title'),
-  importSummary: el<HTMLUListElement>('import-summary'),
-  importConflicts: el<HTMLDivElement>('import-conflicts'),
-  importConflictsText: el<HTMLParagraphElement>('import-conflicts-text'),
-  importKeepMine: el<HTMLButtonElement>('import-keep-mine'),
-  importUseFile: el<HTMLButtonElement>('import-use-file'),
-  importConflictList: el<HTMLDivElement>('import-conflict-list'),
-  importMerge: el<HTMLButtonElement>('import-merge'),
+  editDialog: el<HTMLDialogElement>('edit-dialog'),
+  editWhere: el<HTMLParagraphElement>('edit-where'),
+  editFiles: el<HTMLUListElement>('edit-files'),
+  editHow: el<HTMLParagraphElement>('edit-how'),
   confirmDialog: el<HTMLDialogElement>('confirm-dialog'),
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
@@ -371,7 +364,7 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
     offline: "Data folder: can't reach the local save service, so changes are only saved in this browser for now. Is npm run dev still running?",
     folder: `Data folder: "${path}" (the folder you chose). ${saving}`,
     'folder-permission': `Data folder: "${path}". The browser needs your OK to use it again.`,
-    drive: `Data folder: ${path}${account ? ` in ${account}'s Drive` : ''}. ${saving}`,
+    drive: `Data folder: ${path}${account ? ` in ${account}'s Drive` : ''}. ${user ? `${user.name}'s data is saved there as Google Sheets after every change.` : ''}`,
     'drive-signin': `Data folder: ${path}. Sign in to Google again to keep saving there.`,
     unavailable: 'Data folder: none chosen yet.',
     unsupported: "Data folder: none. This browser can't save to a folder.",
@@ -522,107 +515,40 @@ export function confirmChange(opts: { title: string; message: string; lines?: st
   });
 }
 
-/** Asks how to export: one .zip or three CSV files. Null when cancelled. */
-export function chooseExport(): Promise<'zip' | 'csv' | null> {
-  dom.exportDialog.returnValue = '';
-  dom.exportDialog.showModal();
-  return new Promise((resolve) => {
-    dom.exportDialog.addEventListener(
-      'close',
-      () => {
-        const value = dom.exportDialog.returnValue;
-        resolve(value === 'zip' || value === 'csv' ? value : null);
-      },
-      { once: true },
-    );
-  });
+/** Where a profile's files are, for the "Edit data" dialog. A file with a `url` opens in a new tab. */
+export interface DataFiles {
+  where: string;
+  files: { label: string; name: string; url?: string }[];
+  how: string;
 }
 
-/** One conflict row: an entry already logged vs the file's row for the same time. Text is pre-formatted by the caller. */
-export interface ImportConflictRow {
-  id: string; // e.g. "weight:w2"
-  label: string; // e.g. "Oct 2, 8:00 AM" or "Oct 1, 6:00 PM · Morning run"
-  mine: string; // e.g. "149.0 lb" or "30 min · Cardio"
-  file: string; // e.g. "151.4 lb" or "45 min · Cardio"
-}
-
-export interface ImportChoice {
-  mode: 'merge' | 'replace';
-  /** Ids of the conflicts where the user chose the file's value (all others keep theirs). */
-  useFile: Set<string>;
-}
-
-/** Sets every conflict radio in the import dialog to `value` ("mine" or "file"). */
-function setAllImportConflicts(value: 'mine' | 'file'): void {
-  for (const radio of dom.importConflictList.querySelectorAll<HTMLInputElement>(`input[type="radio"][value="${value}"]`)) {
-    radio.checked = true;
-  }
-}
-
-dom.importKeepMine.addEventListener('click', () => setAllImportConflicts('mine'));
-dom.importUseFile.addEventListener('click', () => setAllImportConflicts('file'));
-
-/** One "Mine: …" / "File: …" radio option for a conflict row. */
-function importConflictOption(name: string, value: 'mine' | 'file', text: string): HTMLLabelElement {
-  const label = document.createElement('label');
-  const radio = document.createElement('input');
-  radio.type = 'radio';
-  radio.name = name;
-  radio.value = value;
-  radio.checked = value === 'mine';
-  label.append(radio, ` ${text}`);
-  return label;
-}
-
-/**
- * Shows the import dialog: `lines` as a bullet summary, then (if any) the conflicts with "Keep all mine" /
- * "Use all from file" buttons and a Mine/File radio pair per row ("Mine" preselected). Buttons: Merge
- * (disabled when !canMerge), "Replace instead…", Cancel. Resolves null on cancel / Esc.
- */
-export function chooseImport(opts: { title: string; lines: string[]; conflicts: ImportConflictRow[]; canMerge: boolean }): Promise<ImportChoice | null> {
-  dom.importTitle.textContent = opts.title;
-  dom.importSummary.replaceChildren(
-    ...opts.lines.map((line) => {
+/** Shows where to edit the data files. Resolves true when the user is done editing and wants a reload. */
+export function showDataFiles(info: DataFiles): Promise<boolean> {
+  dom.editWhere.textContent = info.where;
+  dom.editFiles.replaceChildren(
+    ...info.files.map((f) => {
       const li = document.createElement('li');
-      li.textContent = line;
+      li.append(`${f.label}: `);
+      if (f.url) {
+        const link = document.createElement('a');
+        link.href = f.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = f.name;
+        li.append(link);
+      } else {
+        const code = document.createElement('code');
+        code.textContent = f.name;
+        li.append(code);
+      }
       return li;
     }),
   );
-  const count = opts.conflicts.length;
-  dom.importConflicts.hidden = count === 0;
-  dom.importConflictsText.textContent =
-    count === 1 ? '1 entry differs from the file. Choose which to keep.' : `${count} entries differ from the file. Choose which to keep.`;
-  dom.importConflictList.replaceChildren(
-    ...opts.conflicts.map((row, index) => {
-      const fieldset = document.createElement('fieldset');
-      const legend = document.createElement('legend');
-      legend.textContent = row.label;
-      const name = `conflict-${index}`;
-      fieldset.append(legend, importConflictOption(name, 'mine', `Mine: ${row.mine}`), importConflictOption(name, 'file', `File: ${row.file}`));
-      return fieldset;
-    }),
-  );
-  dom.importMerge.disabled = !opts.canMerge;
-  dom.importDialog.returnValue = '';
-  dom.importDialog.showModal();
+  dom.editHow.textContent = info.how;
+  dom.editDialog.returnValue = '';
+  dom.editDialog.showModal();
   return new Promise((resolve) => {
-    dom.importDialog.addEventListener(
-      'close',
-      () => {
-        const mode = dom.importDialog.returnValue;
-        if (mode !== 'merge' && mode !== 'replace') {
-          resolve(null);
-          return;
-        }
-        const useFile = new Set<string>();
-        opts.conflicts.forEach((row, index) => {
-          const picked = dom.importConflictList.querySelector<HTMLInputElement>(`input[name="conflict-${index}"]:checked`);
-          if (picked?.value === 'file') useFile.add(row.id);
-        });
-        resolve({ mode, useFile });
-      },
-      { once: true },
-    );
+    dom.editDialog.addEventListener('close', () => resolve(dom.editDialog.returnValue === 'reload'), { once: true });
   });
 }
 
@@ -772,7 +698,13 @@ export function renderExerciseBreakdown(user: UserData, startDay: number, endDay
       const category = document.createElement('td');
       const tag = document.createElement('span');
       tag.className = `food-tag ex-${e.category}`;
-      tag.append(document.createElement('i'), exerciseCategoryLabel(e.category));
+      // Category is editable here: a dropdown per row (see the change handler in main.ts).
+      const select = document.createElement('select');
+      select.className = 'food-category-select exercise-category-select';
+      select.dataset.exerciseId = e.id;
+      select.setAttribute('aria-label', `Category for ${e.name}, ${date.textContent}`);
+      select.append(...EXERCISE_CATEGORIES.map((c) => new Option(c.label, c.id, false, c.id === e.category)));
+      tag.append(document.createElement('i'), select);
       category.append(tag);
       const minutes = document.createElement('td');
       minutes.className = 'num';

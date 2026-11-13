@@ -22,15 +22,21 @@ export function localIso(timestamp: number): string {
   );
 }
 
-const LOCAL_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+// Also what Google Sheets exports once it has read a cell as a date: "2026-08-13 7:42:00", "2026-08-13 7:42:00 AM",
+// or just "2026-08-13" (read as midnight).
+const LOCAL_TIME = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:\s*([AaPp])\.?[Mm]\.?)?)?$/;
 const WITH_OFFSET = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
 
 /** Reads a timestamp with no offset as device-local time; one with an offset as that exact instant. */
 export function parseTimestamp(value: string): number | null {
   const local = LOCAL_TIME.exec(value);
   if (local) {
-    const [, y, mo, d, h, mi, s] = local.map(Number);
-    const date = new Date(y, mo - 1, d, h, mi, s || 0);
+    const [y, mo, d, h = 0, mi = 0, s = 0] = local.slice(1, 7).map((v) => (v === undefined ? undefined : Number(v))) as number[];
+    const meridiem = local[7]?.toLowerCase();
+    if (meridiem && (h < 1 || h > 12)) return null;
+    const hour = meridiem ? (h % 12) + (meridiem === 'p' ? 12 : 0) : h;
+    if (hour > 23 || mi > 59 || s > 59) return null;
+    const date = new Date(y, mo - 1, d, hour, mi, s);
     // Reject impossible dates such as 2026-02-31, which Date would roll over.
     return date.getMonth() === mo - 1 && date.getDate() === d ? date.getTime() : null;
   }
@@ -39,6 +45,12 @@ export function parseTimestamp(value: string): number | null {
     return Number.isFinite(t) ? t : null;
   }
   return null;
+}
+
+/** A number cell, also as Google Sheets exports it in locales with a decimal comma ("72,3"). NaN if it isn't one. */
+export function parseNumber(value: string): number {
+  const v = value.trim();
+  return v === '' ? NaN : Number(/^\d+,\d+$/.test(v) ? v.replace(',', '.') : v);
 }
 
 const UNITS: WeightUnit[] = ['kg', 'lb'];
@@ -51,8 +63,8 @@ const asUnit = (v: string | undefined): WeightUnit | null => (v === 'kg' || v ==
  * Each row becomes an entry with both units. Throws if the header is missing; skips (and reports) bad rows.
  */
 export function parseWeightCsv(text: string, defaultUnit: WeightUnit): CsvParseResult {
-  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
-  const header = lines[0]?.split(',').map((h) => h.trim().toLowerCase()) ?? [];
+  const lines = parseCsvRows(text);
+  const header = lines[0]?.map((h) => h.trim().toLowerCase()) ?? [];
   const col = {
     timestamp: header.indexOf('timestamp'),
     kg: header.indexOf('weight_kg'),
@@ -68,8 +80,8 @@ export function parseWeightCsv(text: string, defaultUnit: WeightUnit): CsvParseR
   const entries: CsvRow[] = [];
   const skipped: number[] = [];
   for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const cells = lines[i].split(',').map((c) => c.trim());
+    if (lines[i].every((c) => !c.trim())) continue;
+    const cells = lines[i].map((c) => c.trim());
     const cell = (index: number) => (index >= 0 ? cells[index] ?? '' : '');
     const timestamp = parseTimestamp(cell(col.timestamp));
     const value: Partial<Record<WeightUnit, number>> = {};
@@ -77,14 +89,14 @@ export function parseWeightCsv(text: string, defaultUnit: WeightUnit): CsvParseR
 
     if (col.kg >= 0 || col.lb >= 0) {
       for (const u of UNITS) {
-        const n = Number(cell(col[u]));
+        const n = parseNumber(cell(col[u]));
         if (cell(col[u]) !== '' && Number.isFinite(n) && n > 0) value[u] = n;
       }
       entered = asUnit(cell(col.entered).toLowerCase()) ?? (value.kg !== undefined ? 'kg' : value.lb !== undefined ? 'lb' : null);
     } else {
       const unitCell = cell(col.unit).toLowerCase();
       entered = unitCell === '' ? defaultUnit : asUnit(unitCell);
-      const n = Number(cell(col.weight));
+      const n = parseNumber(cell(col.weight));
       if (entered && cell(col.weight) !== '' && Number.isFinite(n) && n > 0) value[entered] = n;
     }
 
@@ -204,8 +216,7 @@ export function parseExerciseCsv(text: string): ExerciseRow[] {
     const timestamp = parseTimestamp((cells[col.timestamp] ?? '').trim());
     const name = (cells[col.activity] ?? '').trim();
     const category = exerciseCategoryFromText(cells[col.category]);
-    const minutesCell = (cells[col.minutes] ?? '').trim();
-    const minutes = minutesCell === '' ? NaN : Number(minutesCell);
+    const minutes = parseNumber(cells[col.minutes] ?? '');
     if (timestamp !== null && name && category && validMinutes(minutes)) exercises.push({ timestamp, name, category, minutes });
   }
   return exercises;

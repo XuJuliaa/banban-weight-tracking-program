@@ -12,7 +12,7 @@ import {
   setSyncErrorHandler,
 } from './storage';
 import { toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
-import { applyMerge, type Conflict, type DataKind, type ImportPlan, mergeImport, planImport, unzipCsvs, zipFiles } from './backup';
+import { zipFiles } from './backup';
 import {
   chooseFolder,
   closeAccount,
@@ -21,6 +21,7 @@ import {
   openAccount,
   pickAccountFolder,
   fetchProfileList,
+  fileLocations,
   findProfileData,
   googleLogin,
   reconnectGoogle,
@@ -41,12 +42,9 @@ import { overrideDay } from './edits';
 import { initThemePicker } from './theme';
 import { makeEntry } from './units';
 import {
-  chooseExport,
-  chooseImport,
   confirmChange,
   dom,
   formatEntry,
-  formatWeight,
   renderChart,
   renderAccount,
   renderFolder,
@@ -58,14 +56,14 @@ import {
   renderSignupFolder,
   renderUser,
   showFormError,
+  showDataFiles,
   showToast,
   type LoginMode,
   EXERCISE_TABS,
   type ExerciseTab,
-  type ImportConflictRow,
 } from './ui';
 import { categoryFromText, categoryLabel } from './food';
-import { type ExerciseCategoryId, exerciseCategoryFromText, exerciseCategoryLabel, validMinutes } from './exercise';
+import { exerciseCategoryFromText, exerciseCategoryLabel, validMinutes } from './exercise';
 
 /** The logged-in profile; null on the login page. */
 let current: UserData | null = null;
@@ -626,6 +624,30 @@ dom.foodTableBody.addEventListener('change', async (event) => {
   showToast(previous ? `Changed to ${categoryLabel(next)}` : `Added ${categoryLabel(next)}`);
 });
 
+// Category dropdowns in the exercise data table: changing a session's category asks first, then the save
+// rewrites testdata/<name>-exercise.csv and the charts move its minutes to the new category.
+dom.exerciseTableBody.addEventListener('change', async (event) => {
+  const select = (event.target as HTMLElement).closest<HTMLSelectElement>('select.exercise-category-select');
+  const session = current?.exercises?.find((x) => x.id === select?.dataset.exerciseId);
+  const next = exerciseCategoryFromText(select?.value);
+  if (!current || !select || !session || !next || next === session.category) return;
+
+  const ok = await confirmChange({
+    title: 'Change this category?',
+    message: `"${session.name}" on ${longDay.format(session.timestamp)}:`,
+    lines: [`From: ${exerciseCategoryLabel(session.category)}`, `To: ${exerciseCategoryLabel(next)}`],
+    confirmLabel: 'Change category',
+  });
+  if (!ok || !current) {
+    select.value = session.category;
+    return;
+  }
+  current.exercises = (current.exercises ?? []).map((x) => (x.id === session.id ? { ...x, category: next } : x));
+  await saveUser(current);
+  render();
+  showToast(`Changed to ${exerciseCategoryLabel(next)}`);
+});
+
 // --- Correct a weight: replace one date's weight, always after a confirmation pop-up.
 
 dom.overrideDate.addEventListener('change', () => current && renderOverride(current, readDateInput(dom.overrideDate)));
@@ -688,14 +710,9 @@ function download(blob: Blob, fileName: string): void {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Exports all three logs, as one "Juju-data-2026-10-14.zip" or as three CSVs ("weight-Juju-2026-10-14.csv",
- * "food-…", "exercise-…"). Every file is included even when empty, so the export imports back as is.
- */
-dom.exportBtn.addEventListener('click', async () => {
+/** Exports all three logs as one "Juju-data-2026-10-14.zip" of CSVs. Every file is included even when empty. */
+dom.exportBtn.addEventListener('click', () => {
   if (!current) return;
-  const choice = await chooseExport();
-  if (!choice || !current) return;
   const name = current.name.replace(/[^\w-]+/g, '_');
   const date = new Date().toISOString().slice(0, 10);
   const files: Record<string, string> = {
@@ -703,162 +720,43 @@ dom.exportBtn.addEventListener('click', async () => {
     [`food-${name}-${date}.csv`]: toFoodCsv(current),
     [`exercise-${name}-${date}.csv`]: toExerciseCsv(current),
   };
-  if (choice === 'zip') {
-    download(new Blob([zipFiles(files) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), `${name}-data-${date}.zip`);
-    return;
-  }
-  // Browsers drop downloads started at the same instant, so space them out.
-  for (const [fileName, csv] of Object.entries(files)) {
-    download(new Blob([csv], { type: 'text/csv' }), fileName);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
+  download(new Blob([zipFiles(files) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), `${name}-data-${date}.zip`);
 });
 
-const IMPORT_NOUN: Record<DataKind, [string, string]> = {
-  weight: ['weigh-in', 'weigh-ins'],
-  food: ['food entry', 'food entries'],
-  exercise: ['exercise session', 'exercise sessions'],
-};
-const KIND_LABEL: Record<DataKind, string> = { weight: 'Weight', food: 'Food', exercise: 'Exercise' };
-
-/** The CSV files picked: each .csv as is, or the CSVs inside a single exported .zip. */
-async function readPicked(picked: File[]): Promise<{ files: { name: string; text: string }[]; ignored: string[] }> {
-  const zips = picked.filter((f) => /\.zip$/i.test(f.name) || f.type === 'application/zip');
-  const csvs = picked.filter((f) => /\.csv$/i.test(f.name) || f.type === 'text/csv');
-  const ignored = picked.filter((f) => !zips.includes(f) && !csvs.includes(f)).map((f) => `${f.name} (not a CSV or zip file)`);
-  if (zips.length && (zips.length > 1 || csvs.length)) throw new Error('Pick one .zip file, or up to three CSV files.');
-  if (zips.length) {
-    const files = unzipCsvs(new Uint8Array(await zips[0].arrayBuffer()));
-    if (!files.length) throw new Error(`${zips[0].name} has no CSV files in it.`);
-    return { files, ignored };
-  }
-  return { files: await Promise.all(csvs.map(async (f) => ({ name: f.name, text: await f.text() }))), ignored };
-}
-
-const importNoun = (kind: DataKind, n: number) => `${n} ${n === 1 ? IMPORT_NOUN[kind][0] : IMPORT_NOUN[kind][1]}`;
-const importTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-
-/** One import conflict as a row of the import dialog: when (and what), the profile's value and the file's. */
-function conflictRow(user: UserData, c: Conflict): ImportConflictRow {
-  const when = importTime.format(c.existing.timestamp);
-  if (c.kind === 'weight') {
-    const weight = (e: { kg: number; lb: number }) => `${formatWeight(e[user.unit])} ${user.unit}`;
-    return { id: c.id, label: when, mine: weight(c.existing), file: weight(c.incoming) };
-  }
-  const session = (x: { minutes: number; category: ExerciseCategoryId }) => `${x.minutes} min · ${exerciseCategoryLabel(x.category)}`;
-  return { id: c.id, label: `${when} · ${c.existing.name}`, mine: session(c.existing), file: session(c.incoming) };
-}
+const FILE_LABELS = ['Weight', 'Food', 'Exercise'];
 
 /**
- * Replaces the planned kinds of `user`'s data with the files' rows, after one confirmation. Kinds without a file
- * are left as they are.
+ * "Edit data…": there's no import. The data folder's files are the data, so this shows where they are (with links
+ * to the Google Sheets on Drive); the app reads them again when the user comes back, or on "I'm done, reload".
  */
-async function replaceFromPlan(user: UserData, plan: ImportPlan, skipped: string[]): Promise<void> {
-  const currentCounts: Record<DataKind, number> = {
-    weight: user.entries.length,
-    food: user.foods?.length ?? 0,
-    exercise: user.exercises?.length ?? 0,
-  };
-  const kinds = (['weight', 'food', 'exercise'] as const).filter((k) => plan[k]);
-  const lines = kinds.map((k) => {
-    const part = plan[k]!;
-    const replaceWith = part.rows.length ? `with ${importNoun(k, part.rows.length)}` : 'with nothing (it will be emptied)';
-    const unreadable = part.unreadable.length ? `, skipping ${part.unreadable.length} unreadable line(s)` : '';
-    return `${KIND_LABEL[k]}: replace ${importNoun(k, currentCounts[k])} ${replaceWith} from ${part.fileName}${unreadable}`;
-  });
-  const kept = (['weight', 'food', 'exercise'] as const).filter((k) => !plan[k]).map((k) => KIND_LABEL[k].toLowerCase());
-  if (kept.length) lines.push(`Unchanged: ${kept.join(' and ')}`);
-  if (skipped.length) lines.push(`Not imported: ${skipped.join('; ')}`);
-  const ok = await confirmChange({
-    title: `Replace data for "${user.name}"?`,
-    message: 'Importing will:',
-    lines,
-    warning: 'This overwrites the current entries. Export first if you want a backup.',
-    confirmLabel: 'Replace',
-  });
-  if (!ok || current !== user) return;
-
-  if (plan.weight) user.entries = plan.weight.rows.map((e) => ({ id: crypto.randomUUID(), ...e }));
-  if (plan.food) user.foods = plan.food.rows.map((f) => ({ id: crypto.randomUUID(), ...f }));
-  if (plan.exercise) user.exercises = plan.exercise.rows.map((x) => ({ id: crypto.randomUUID(), ...x }));
-  await saveUser(user);
-  render();
-  showToast(`Replaced ${kinds.map((k) => KIND_LABEL[k].toLowerCase()).join(', ')} for "${user.name}"`);
-}
-
-/**
- * Imports the picked files (one per kind, or an exported .zip) into the current profile. By default they are
- * merged: entries not logged yet are added, ones already logged are skipped, and entries at the same time with a
- * different value are listed for the user to keep theirs or use the file's. Replace is offered instead, which
- * overwrites each imported kind after a confirmation. Kinds without a file are left as they are.
- */
-async function importFiles(picked: File[]): Promise<void> {
-  if (!current) {
-    showToast('Create or select a profile first, then import your data');
-    return;
-  }
-  const user = current;
-  const { files, ignored } = await readPicked(picked);
-  const plan = planImport(files, user.unit);
-  const skipped = [...ignored, ...plan.ignored.map((i) => `${i.fileName} (${i.reason})`)];
-  const kinds = (['weight', 'food', 'exercise'] as const).filter((k) => plan[k]);
-  if (!kinds.length) {
-    showToast(`Nothing to import${skipped.length ? `: ${skipped.join('; ')}` : ''}`);
-    return;
-  }
-
-  const merge = mergeImport(user, plan);
-  const lines = kinds.map((k) => {
-    const part = merge[k]!;
-    const already = part.duplicates ? ` (${part.duplicates} already logged)` : '';
-    const unreadable = plan[k]!.unreadable.length ? `, skipping ${plan[k]!.unreadable.length} unreadable line(s)` : '';
-    return `${KIND_LABEL[k]}: add ${importNoun(k, part.add.length)}${already}${unreadable}`;
-  });
-  const kept = (['weight', 'food', 'exercise'] as const).filter((k) => !plan[k]).map((k) => KIND_LABEL[k].toLowerCase());
-  if (kept.length) lines.push(`Unchanged: ${kept.join(' and ')}`);
-  if (skipped.length) lines.push(`Not imported: ${skipped.join('; ')}`);
-  const added = kinds.filter((k) => merge[k]!.add.length);
-  const canMerge = added.length > 0 || merge.conflicts.length > 0;
-  if (!canMerge) lines.push('Nothing new to add.');
-
-  const choice = await chooseImport({
-    title: `Import into "${user.name}"`,
-    lines,
-    conflicts: merge.conflicts.map((c) => conflictRow(user, c)),
-    canMerge,
-  });
-  if (!choice || current !== user) return;
-  if (choice.mode === 'replace') {
-    await replaceFromPlan(user, plan, skipped);
-    return;
-  }
-
-  const next = applyMerge(user, merge, choice.useFile);
-  user.entries = next.entries;
-  user.foods = next.foods;
-  user.exercises = next.exercises;
-  await saveUser(user);
-  render();
-  const used = merge.conflicts.filter((c) => choice.useFile.has(c.id)).length;
-  const resolved = merge.conflicts.length ? `kept ${merge.conflicts.length - used} of yours, used ${used} from the file` : '';
-  const addedText = added.map((k) => importNoun(k, merge[k]!.add.length));
-  const list = addedText.length > 1 ? `${addedText.slice(0, -1).join(', ')} and ${addedText[addedText.length - 1]}` : addedText[0];
-  showToast(
-    list
-      ? `Added ${list} to "${user.name}"${resolved ? `; ${resolved}` : ''}`
-      : `Updated "${user.name}": ${resolved}`,
-  );
-}
-
-dom.importBtn.addEventListener('click', () => dom.importFile.click());
-dom.importFile.addEventListener('change', async () => {
-  const picked = [...(dom.importFile.files ?? [])];
-  dom.importFile.value = '';
-  if (!picked.length) return;
+dom.editDataBtn.addEventListener('click', async () => {
+  if (!current) return;
+  let where;
   try {
-    await importFiles(picked);
+    where = await fileLocations(current.name);
   } catch (err) {
-    showToast(err instanceof Error ? err.message : 'Import failed');
+    console.error(err);
+    showToast(err instanceof Error ? err.message : "Couldn't find your data files");
+    return;
+  }
+  if (!where) {
+    showToast("Your data folder isn't connected right now. Connect it under Data & backup, then try again");
+    return;
+  }
+  const files = where.files.map((f, i) => ({ label: FILE_LABELS[i], name: f.path ?? f.name, ...(f.url ? { url: f.url } : {}) }));
+  const how = {
+    drive: 'Each link opens the file in Google Sheets, where you can add, change or delete rows. Sheets saves as you type.',
+    folder: 'Open the files in the folder you chose with Excel, Numbers or a text editor, then save them as CSV.',
+    service: 'Open the files with Excel, Numbers or a text editor, then save them as CSV.',
+  }[where.store];
+  const lead =
+    where.store === 'drive' ? `${current.name}'s data is in your Google Drive, in the "${where.folder.split(' › ').pop()}" folder:`
+    : where.store === 'folder' ? `${current.name}'s data is in the folder "${where.folder}":`
+    : `${current.name}'s data is in ${where.folder}:`;
+  const reload = await showDataFiles({ where: lead, files, how });
+  if (reload && current) {
+    await reloadCurrent();
+    showToast('Reloaded your data files');
   }
 });
 
@@ -984,10 +882,11 @@ new ResizeObserver(([entry]) => {
 }).observe(dom.exerciseCard);
 
 // Recompute stats when the app comes back into view, since the windows depend on today's date.
-// With Google Drive, also reload the profile: it may have been changed from another device.
+// Also reload the profile from its files: they may have been edited directly (see "Edit data…") or changed
+// from another device.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  if (userdataStatus() === 'drive' && current) void reloadCurrent();
+  if (current) void reloadCurrent();
   else render();
 });
 
