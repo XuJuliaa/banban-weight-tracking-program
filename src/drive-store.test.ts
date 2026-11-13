@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DriveAuthError, driveTextStore, driveUser, ensureFolder, nameFolder } from './drive-store';
 
-/** A tiny fake of the Drive REST API: one folder of files, with every request recorded. */
+const SHEET = 'application/vnd.google-apps.spreadsheet';
+
+/**
+ * A tiny fake of the Drive REST API: one folder of files, with every request recorded. Files named "x.csv" start
+ * as plain CSVs; other names start as Google Sheets.
+ */
 function fakeDrive(initial: Record<string, string> = {}, folders: Record<string, string> = {}) {
   const folderNames = new Map(Object.entries(folders));
-  const files = new Map(Object.entries(initial).map(([name, text], i) => [`id${i}`, { name, text }]));
+  const files = new Map<string, { name: string; text: string; mimeType: string; trashed?: boolean }>(
+    Object.entries(initial).map(([name, text], i) => [`id${i}`, { name, text, mimeType: name.endsWith('.csv') ? 'text/csv' : SHEET }]),
+  );
   let next = files.size;
   const calls: { method: string; url: string; auth: string; body?: string; type?: string }[] = [];
   let unauthorized = 0;
@@ -25,22 +32,32 @@ function fakeDrive(initial: Record<string, string> = {}, folders: Record<string,
         const matches = [...folderNames].filter(([, name]) => q.includes(`name='${name.replace(/'/g, "\\'")}'`));
         return Response.json({ files: matches.map(([fid, name]) => ({ id: fid, name })) });
       }
-      return Response.json({ files: [...files].map(([fid, f]) => ({ id: fid, name: f.name })) });
+      const live = [...files].filter(([, f]) => !f.trashed);
+      return Response.json({ files: live.map(([fid, f]) => ({ id: fid, name: f.name, mimeType: f.mimeType })) });
     }
     if (method === 'GET' && id) {
       const f = files.get(id);
-      return f ? new Response(f.text) : new Response('', { status: 404 });
+      if (!f) return new Response('', { status: 404 });
+      // Sheets are read through export, plain files with alt=media.
+      const exporting = u.pathname.endsWith('/export');
+      if (exporting !== (f.mimeType === SHEET)) return new Response('wrong download', { status: 400 });
+      return new Response(f.text);
     }
     if (method === 'POST' && u.pathname.startsWith('/upload/')) {
       const body = init.body as string;
       const meta = JSON.parse(/\r\n\r\n(\{.*?\})\r\n--/s.exec(body)![1]);
       const text = /text\/csv; charset=UTF-8\r\n\r\n([\s\S]*)\r\n--[^\r\n]*--$/.exec(body)![1];
       const fid = `id${next++}`;
-      files.set(fid, { name: meta.name, text });
+      files.set(fid, { name: meta.name, text, mimeType: meta.mimeType });
       return Response.json({ id: fid });
     }
     if (method === 'POST') return Response.json({ id: 'folder1' });
     if (method === 'PATCH' && id && !u.pathname.startsWith('/upload/')) {
+      const patch = JSON.parse(init.body as string);
+      if (patch.trashed && files.has(id)) {
+        files.get(id)!.trashed = true;
+        return Response.json({ id });
+      }
       if (!folderNames.has(id)) return new Response('not found', { status: 404 });
       folderNames.set(id, JSON.parse(init.body as string).name);
       return Response.json({ id });
@@ -64,12 +81,13 @@ afterEach(() => vi.unstubAllGlobals());
 const token = async () => 'tok';
 
 describe('driveTextStore', () => {
-  it('lists, reads, creates, updates and removes files in the folder', async () => {
-    const drive = fakeDrive({ 'profiles.csv': 'name,unit\nJuju,kg\n' });
+  it('keeps each file as a Google Sheet: lists, reads, creates, updates and removes them', async () => {
+    const drive = fakeDrive({ profiles: 'name,unit\nJuju,kg\n' });
     const store = driveTextStore(token, 'folder1');
 
     expect(await store.list()).toEqual(['profiles.csv']);
     expect(await store.read('profiles.csv')).toBe('name,unit\nJuju,kg\n');
+    expect(drive.calls.at(-1)!.url).toContain('/files/id0/export?mimeType=text%2Fcsv');
     expect(await store.read('missing.csv')).toBeNull();
 
     await store.write('juju-weight.csv', 'timestamp,weight_kg\n');
@@ -77,19 +95,48 @@ describe('driveTextStore', () => {
     expect(create.method).toBe('POST');
     expect(create.url).toContain('/upload/drive/v3/files?uploadType=multipart');
     expect(create.type).toMatch(/^multipart\/related; boundary=/);
-    expect(create.body).toContain('"parents":["folder1"]');
+    expect(create.body).toContain(`{"name":"juju-weight","parents":["folder1"],"mimeType":"${SHEET}"}`);
 
     await store.write('juju-weight.csv', 'v2');
     expect(drive.calls.at(-1)!.method).toBe('PATCH');
+    expect(drive.calls.at(-1)!.type).toBe('text/csv; charset=UTF-8');
     expect(await store.read('juju-weight.csv')).toBe('v2');
+    expect(await store.link!('juju-weight.csv')).toMatch(/^https:\/\/docs\.google\.com\/spreadsheets\/d\/id\d+\/edit$/);
+    expect(await store.link!('missing.csv')).toBeNull();
 
     await store.remove('juju-weight.csv');
     expect(await store.list()).toEqual(['profiles.csv']);
     expect(drive.calls.every((c) => c.auth === 'Bearer tok')).toBe(true);
   });
 
+  it('turns a plain CSV from before into a Sheet when it is read, and moves the CSV to the trash', async () => {
+    const drive = fakeDrive({ 'juju-weight.csv': 'timestamp,weight_kg\n2026-10-01T08:00:00,70\n' });
+    const store = driveTextStore(token, 'folder1');
+
+    expect(await store.read('juju-weight.csv')).toBe('timestamp,weight_kg\n2026-10-01T08:00:00,70\n');
+    expect(drive.files.get('id0')!.trashed).toBe(true);
+    const sheet = [...drive.files.values()].find((f) => f.mimeType === SHEET)!;
+    expect(sheet).toMatchObject({ name: 'juju-weight', text: 'timestamp,weight_kg\n2026-10-01T08:00:00,70\n' });
+
+    expect(await store.list()).toEqual(['juju-weight.csv']);
+    expect(await store.read('juju-weight.csv')).toBe(sheet.text);
+  });
+
+  it('turns a plain CSV into a Sheet when it is written', async () => {
+    const drive = fakeDrive({ 'juju-food.csv': 'old' });
+    const store = driveTextStore(token, 'folder1');
+    await store.write('juju-food.csv', 'new');
+    expect(drive.files.get('id0')!.trashed).toBe(true);
+    expect([...drive.files.values()].find((f) => f.mimeType === SHEET)).toMatchObject({ name: 'juju-food', text: 'new' });
+  });
+
+  it('prefers the Sheet when a leftover CSV has the same name', async () => {
+    fakeDrive({ 'juju-weight.csv': 'old csv', 'juju-weight': 'sheet' });
+    expect(await driveTextStore(token, 'folder1').read('juju-weight.csv')).toBe('sheet');
+  });
+
   it('retries once with a new token after a 401, and gives up with DriveAuthError on a second', async () => {
-    const drive = fakeDrive({ 'a.csv': 'x' });
+    const drive = fakeDrive({ a: 'x' });
     const getToken = vi.fn(async () => 'tok');
     drive.expireNext(1);
     expect(await driveTextStore(getToken, 'folder1').list()).toEqual(['a.csv']);

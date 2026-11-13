@@ -93,7 +93,7 @@ npm run dev        # serves http://localhost:5173
 - **Exercise card.** It has its own date range, opening on the **past 7 days**, with the same chips. The range is shared by four tabs:
   - **Summary:** one tile per category with total time, number of sessions and average minutes per day, plus an overall line, e.g. "All exercise: 4 h 25 min · 8 sessions over 7 days".
   - **Cardio / Strength / Flexibility:** a bar chart of **minutes per day** for that category, as a time series. Days with nothing logged have no bar. Hover a bar to see the date, the total and that day's activities.
-  - **Show data table:** lists the sessions behind the selected tab (every category on Summary).
+  - **Show data table:** lists the sessions behind the selected tab (every category on Summary). Each row's category is a dropdown; changing it asks for confirmation, then the charts move that session's minutes to the new category.
 
   Tabs can be switched with the arrow keys, and the selected tab is remembered in this browser.
 
@@ -108,7 +108,8 @@ npm run dev        # serves http://localhost:5173
 
   Each has a matching dark mode that follows the system setting. Chart category colors come from a palette checked for color-blind separation and contrast.
 - **Required data folder on a hosted site.** Creating an account includes choosing the [folder on your computer](#saving-to-a-folder-on-a-hosted-site) where its CSV files are saved.
-- **Backup and restore.** Export the weight, food and exercise logs as CSV, and import any of them back.
+- **Backup.** **Export data (.zip)** downloads the weight, food and exercise logs as one .zip of CSV files.
+- **Edit your data directly.** There's no import. The CSV files in the data folder *are* your data, so to add or fix entries in bulk you edit them. **Edit data…** shows exactly where they are: the full paths in `testdata/` when running locally, the files in the folder you chose, or, on Google Drive, a link that opens each one in Google Sheets. The app reads the files again when you come back to its tab, or right away with **I'm done, reload**. Keep the header row and write dates as `YYYY-MM-DD HH:MM`; rows the app can't read are left out.
 - **Works offline and installs like an app** (PWA). On a phone, use *Add to Home Screen*.
 
 ---
@@ -126,8 +127,8 @@ npm run dev        # serves http://localhost:5173
 | Log a workout | **Exercise log**: activity, category, minutes, Enter |
 | See a week of exercise | **Exercise** card → **Summary** tab |
 | See daily cardio minutes | **Exercise** card → **Cardio** tab |
-| Back up my data | **Data & backup** → Export weight / food / exercise CSV |
-| Restore a backup | **Data & backup** → Import weight / food / exercise CSV |
+| Back up my data | **Data & backup** → **Export data (.zip)** |
+| Add or fix many entries at once | **Data & backup** → **Edit data…** → open the files it lists and edit them; the app reloads when you come back |
 | Pick the data folder (hosted site) | When creating an account; later **Data & backup** → **Change folder…** |
 | Switch person | **Log out** in the header, then log in as someone else |
 | Change colors | The swatches next to the title |
@@ -203,14 +204,14 @@ On a hosted copy of the app there's no `testdata/` service. The browser saves to
 Browsers only reveal the folder's name to the page, not its full path.
 
 ### Saving to Google Drive
-**Continue with Google** on the login page is a second way in, next to the username login. It signs in with Google and keeps the same CSV files in a **BanBan Weight Tracker** folder in that person's own Drive. It works in every browser, phones included, and the page talks to Google directly with no server in between.
+**Continue with Google** on the login page is a second way in, next to the username login. It signs in with Google and keeps the same data in a **BanBan Weight Tracker** folder in that person's own Drive, as one Google Sheet per file (`juju-weight`, `juju-food`, `juju-exercise`, `profiles`), so it can be edited right in Google Sheets on any device. The app reads each Sheet as CSV and writes it back by uploading CSV. Files saved as plain `.csv` by an older version are turned into Sheets the first time they're read, and the old `.csv` goes to the Drive trash. It works in every browser, phones included, and the page talks to Google directly with no server in between.
 
 - **One profile per Google account**, named from the account's first name (e.g. "Juliet"). If a username profile already has that name, the full name or the email's first part is used instead, so the two never mix. Google profiles can't be opened with a username and weight.
 - **Always Drive.** A Google login saves to Drive even while running locally; `testdata/` is only for username profiles.
 - **Narrow permission.** The app asks only for `drive.file`, so it can see the files it created and nothing else in your Drive.
 - **Signing in again.** Google's sign-in lasts an hour and isn't kept between visits. After a reload, and after an hour, the app shows **Sign in to Google** (one tap) before you can log anything. Only the profile's own Google account is accepted.
 - **Several devices.** The phone and the computer use the same files. When you come back to the tab, the open profile reloads from Drive. Saves replace whole files, so the last save wins.
-- **Files added by hand aren't visible.** Because of the narrow permission, CSVs you upload to that folder yourself can't be seen by the app. Use import to bring existing data in.
+- **Edit the app's Sheets, don't replace them.** Because of the narrow permission, files you upload or create in that folder yourself can't be seen by the app. Open the Sheets from **Edit data…** and change them in place. Every save from the app replaces a Sheet's contents with plain rows, so extra tabs, formulas and formatting aren't kept.
 - **Log out** also signs out of Google. The files stay in Drive.
 
 #### One-time setup (by whoever hosts the site)
@@ -246,29 +247,29 @@ IndexedDB database `keyval-store`. Each browser and each web address (`localhost
 ## CSV formats
 All files are UTF-8 with a header row, oldest row first. Fields containing commas or quotes are quoted (`"Weights, upper body"`).
 
-**Timestamps.** A timestamp without an offset (e.g. `2026-10-11T07:15:00`) is local time. One with an offset (`Z`, `+02:00`) is that exact moment.
+**Timestamps.** A timestamp without an offset (e.g. `2026-10-11T07:15:00`) is local time. One with an offset (`Z`, `+02:00`) is that exact moment. When reading, a space instead of `T`, a one-digit hour, AM/PM and a date alone (midnight) are also accepted, as Google Sheets may write them. So is a decimal comma (`"72,1"`). Other date orders such as `13/08/2026` are not.
 
-**Weight:** `testdata/<name>-weight.csv` and **Export weight CSV**.
+**Weight:** `testdata/<name>-weight.csv`, and `weight-<Name>-<date>.csv` in an export.
 ```
 timestamp,weight_kg,weight_lb,entered_unit
 2026-08-13T07:42:00,72.1,158.95,kg
 ```
-The unit it was typed in is exact; the other is converted (1 kg = 2.20462 lb, rounded to 0.01). **Import weight CSV** also accepts the older `timestamp,weight,unit` format. Rows at a time already in the profile are skipped, so importing the same file twice does nothing.
+The unit it was typed in is exact; the other is converted (1 kg = 2.20462 lb, rounded to 0.01). The older `timestamp,weight,unit` format still loads.
 
-**Food:** `testdata/<name>-food.csv` and **Export food CSV**.
+**Food:** `testdata/<name>-food.csv`, and `food-<Name>-<date>.csv` in an export.
 ```
 timestamp,food,category
 2026-10-11T08:05:00,Oatmeal with berries,Grains & starches
 ```
-The category may be blank (uncategorized). Older two-column files still load. **Import food CSV** skips rows with the same time and food as an existing entry.
+The category may be blank (uncategorized). Older two-column files still load.
 
-**Exercise:** `testdata/<name>-exercise.csv` and **Export exercise CSV**.
+**Exercise:** `testdata/<name>-exercise.csv`, and `exercise-<Name>-<date>.csv` in an export.
 ```
 timestamp,activity,category,minutes
 2026-10-11T06:54:00,Swim,Cardio,20
 2026-10-11T18:30:00,"Weights, upper body",Strength,40
 ```
-The category is `Cardio`, `Strength` or `Flexibility`; minutes run from 1 to 1440. Rows that don't fit are skipped when reading. **Import exercise CSV** skips rows with the same time and activity as an existing entry.
+The category is `Cardio`, `Strength` or `Flexibility`; minutes run from 1 to 1440. Rows that don't fit are skipped when reading.
 
 ---
 
@@ -277,7 +278,7 @@ These are made-up data for trying the charts. The generators are seeded, so they
 
 | Command | Writes |
 | --- | --- |
-| `npm run sample-data` | `test/data/juju-60d.csv`: 60 days of weigh-ins (about 72 → 69.5 kg), ending today. Import it with **Import weight CSV** into a kg profile named **Juju**. |
+| `npm run sample-data` | `test/data/juju-60d.csv`: 60 days of weigh-ins (about 72 → 69.5 kg), ending today. To use it, copy its rows into the `juju-weight` file shown by **Edit data…** in a kg profile named **Juju**. |
 | `npm run sample-food` | 60 days of meals in `testdata/juju-food.csv`. Backs up the current file to `testdata/.migrated/` first and keeps existing rows. |
 | `npm run sample-exercise` | 60 days of workouts in `testdata/juju-exercise.csv`. Backs up an existing file first and keeps existing rows. |
 
@@ -290,12 +291,13 @@ Pass a different profile slug to the food and exercise scripts with `node script
 index.html                 page markup: header, cards, dialogs
 vite.config.ts             Vite + PWA config, and the testdata/ save service
 src/
-  main.ts                  wiring: login, forms, ranges, tabs, import/export
+  main.ts                  wiring: login, forms, ranges, tabs, export, Edit data
   accounts.ts              username check and the logged-in session
   ui.ts                    rendering: stats, tables, today lists, food and exercise cards
   chart.ts                 weight line chart (SVG), axes and tick helpers
   bars.ts                  exercise minutes-per-day bar chart (SVG)
   pie.ts                   food breakdown pie (SVG)
+  backup.ts                the .zip export
   stats.ts                 10-day average, 30-day frequency, chart series, day helpers
   food.ts                  food categories and counts
   exercise.ts              exercise categories, summary, daily minutes
@@ -306,7 +308,7 @@ src/
   userdata-api.ts          picks the data folder: local save service, chosen folder, or none
   profile-files.ts         the folder's file layout (profiles.csv, <slug>-*.csv), shared by both
   folder-store.ts          a folder picked in the browser (File System Access API)
-  drive-store.ts           Google Drive as the data folder (Google sign-in + Drive REST API)
+  drive-store.ts           Google Drive as the data folder, as Google Sheets (Google sign-in + Drive REST API)
   theme.ts                 color theme picker
   names.ts                 profile name → file slug
   types.ts                 shared types
@@ -335,8 +337,8 @@ The tests cover:
 - food counts, the exercise summary and daily minutes
 - the chart geometry: monotone curve, pie slices and bar shapes
 - the folder file layout (in memory and on disk): writing, reading, validation and migration
-- import duplicate-skipping
-- the Google Drive store, against a fake Drive API
+- the .zip export
+- the Google Drive store (Sheets, and turning old CSVs into Sheets), against a fake Drive API
 - Google login: the session, the profile name and keeping Google profiles apart from username ones
 
 ---

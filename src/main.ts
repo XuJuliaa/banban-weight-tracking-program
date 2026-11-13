@@ -11,7 +11,8 @@ import {
   loadUserFromFiles,
   setSyncErrorHandler,
 } from './storage';
-import { mergeNew, parseExerciseCsv, parseFoodCsv, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import { toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import { zipFiles } from './backup';
 import {
   chooseFolder,
   closeAccount,
@@ -20,6 +21,7 @@ import {
   openAccount,
   pickAccountFolder,
   fetchProfileList,
+  fileLocations,
   findProfileData,
   googleLogin,
   reconnectGoogle,
@@ -55,13 +57,14 @@ import {
   renderSignupFolder,
   renderUser,
   showFormError,
+  showDataFiles,
   showToast,
   type LoginMode,
   EXERCISE_TABS,
   type ExerciseTab,
 } from './ui';
 import { categoryFromText, categoryLabel } from './food';
-import { exerciseCategoryFromText, validMinutes } from './exercise';
+import { exerciseCategoryFromText, exerciseCategoryLabel, validMinutes } from './exercise';
 
 /** The logged-in profile; null on the login page. */
 let current: UserData | null = null;
@@ -642,6 +645,30 @@ dom.foodTableBody.addEventListener('change', async (event) => {
   showToast(previous ? `Changed to ${categoryLabel(next)}` : `Added ${categoryLabel(next)}`);
 });
 
+// Category dropdowns in the exercise data table: changing a session's category asks first, then the save
+// rewrites testdata/<name>-exercise.csv and the charts move its minutes to the new category.
+dom.exerciseTableBody.addEventListener('change', async (event) => {
+  const select = (event.target as HTMLElement).closest<HTMLSelectElement>('select.exercise-category-select');
+  const session = current?.exercises?.find((x) => x.id === select?.dataset.exerciseId);
+  const next = exerciseCategoryFromText(select?.value);
+  if (!current || !select || !session || !next || next === session.category) return;
+
+  const ok = await confirmChange({
+    title: 'Change this category?',
+    message: `"${session.name}" on ${longDay.format(session.timestamp)}:`,
+    lines: [`From: ${exerciseCategoryLabel(session.category)}`, `To: ${exerciseCategoryLabel(next)}`],
+    confirmLabel: 'Change category',
+  });
+  if (!ok || !current) {
+    select.value = session.category;
+    return;
+  }
+  current.exercises = (current.exercises ?? []).map((x) => (x.id === session.id ? { ...x, category: next } : x));
+  await saveUser(current);
+  render();
+  showToast(`Changed to ${exerciseCategoryLabel(next)}`);
+});
+
 // --- Correct a weight: replace one date's weight, always after a confirmation pop-up.
 
 dom.overrideDate.addEventListener('change', () => current && renderOverride(current, readDateInput(dom.overrideDate)));
@@ -694,101 +721,63 @@ dom.unitToggle.addEventListener('click', async (event) => {
   await saveUser(current);
 });
 
-/** Saves `csv` as e.g. "weight-Juju-2026-10-12.csv", "food-…" or "exercise-…". */
-function downloadCsv(csv: string, kind: 'weight' | 'food' | 'exercise'): void {
-  if (!current) return;
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+/** Starts a download of `blob` as `fileName`. */
+function download(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const date = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.download = `${kind}-${current.name.replace(/[^\w-]+/g, '_')}-${date}.csv`;
+  link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
 }
 
-dom.exportCsvBtn.addEventListener('click', () => current && downloadCsv(toWeightCsv(current), 'weight'));
-dom.exportFoodCsvBtn.addEventListener('click', () => current && downloadCsv(toFoodCsv(current), 'food'));
-dom.exportExerciseCsvBtn.addEventListener('click', () => current && downloadCsv(toExerciseCsv(current), 'exercise'));
+/** Exports all three logs as one "Juju-data-2026-10-14.zip" of CSVs. Every file is included even when empty. */
+dom.exportBtn.addEventListener('click', () => {
+  if (!current) return;
+  const name = current.name.replace(/[^\w-]+/g, '_');
+  const date = new Date().toISOString().slice(0, 10);
+  const files: Record<string, string> = {
+    [`weight-${name}-${date}.csv`]: toWeightCsv(current),
+    [`food-${name}-${date}.csv`]: toFoodCsv(current),
+    [`exercise-${name}-${date}.csv`]: toExerciseCsv(current),
+  };
+  download(new Blob([zipFiles(files) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), `${name}-data-${date}.zip`);
+});
 
-type ImportKind = 'weight' | 'food' | 'exercise';
-const IMPORT_NOUN: Record<ImportKind, [string, string]> = {
-  weight: ['weigh-in', 'weigh-ins'],
-  food: ['food entry', 'food entries'],
-  exercise: ['exercise session', 'exercise sessions'],
-};
+const FILE_LABELS = ['Weight', 'Food', 'Exercise'];
 
 /**
- * Rows from an exported CSV, added to the selected profile after a confirmation. Rows already logged
- * (same time; for food and exercise also the same text) are skipped, so importing twice adds nothing.
+ * "Edit data…": there's no import. The data folder's files are the data, so this shows where they are (with links
+ * to the Google Sheets on Drive); the app reads them again when the user comes back, or on "I'm done, reload".
  */
-async function importCsv(kind: ImportKind, text: string, fileName: string): Promise<void> {
-  if (!current) {
-    showToast('Create or select a profile first, then import the CSV');
-    return;
-  }
-  const user = current;
-  let total: number;
-  let skipped: number[] = [];
-  let add: () => void;
-  let count: number;
-  if (kind === 'weight') {
-    const parsed = parseWeightCsv(text, user.unit);
-    skipped = parsed.skipped;
-    total = parsed.entries.length;
-    const fresh = mergeNew(user.entries, parsed.entries, (e) => String(e.timestamp));
-    count = fresh.length;
-    add = () => user.entries.push(...fresh.map((e) => ({ id: crypto.randomUUID(), ...e })));
-  } else if (kind === 'food') {
-    const rows = parseFoodCsv(text);
-    total = rows.length;
-    const fresh = mergeNew(user.foods ?? [], rows, (f) => `${f.timestamp}|${f.text}`);
-    count = fresh.length;
-    add = () => (user.foods = [...(user.foods ?? []), ...fresh.map((f) => ({ id: crypto.randomUUID(), ...f }))]);
-  } else {
-    const rows = parseExerciseCsv(text);
-    total = rows.length;
-    const fresh = mergeNew(user.exercises ?? [], rows, (x) => `${x.timestamp}|${x.name}`);
-    count = fresh.length;
-    add = () => (user.exercises = [...(user.exercises ?? []), ...fresh.map((x) => ({ id: crypto.randomUUID(), ...x }))]);
-  }
-
-  const [one, many] = IMPORT_NOUN[kind];
-  const noun = (n: number) => `${n} ${n === 1 ? one : many}`;
-  const notes = [
-    total > count ? `${total - count} already logged` : '',
-    skipped.length ? `${skipped.length} unreadable (line ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? ', …' : ''})` : '',
-  ].filter(Boolean);
-  if (count === 0) {
-    showToast(`Nothing new to add from ${fileName}${notes.length ? ` (${notes.join('; ')})` : ''}`);
-    return;
-  }
-  const question = `Add ${noun(count)} from ${fileName} to "${user.name}"?`;
-  if (!confirm(notes.length ? `${question}\n\nSkipping: ${notes.join('; ')}.` : question)) return;
-  add();
-  await saveUser(user);
-  render();
-  showToast(`Added ${noun(count)} to "${user.name}"`);
-}
-
-let importKind: ImportKind = 'weight';
-for (const button of [dom.importBtn, dom.importFoodBtn, dom.importExerciseBtn]) {
-  button.addEventListener('click', () => {
-    importKind = button.dataset.import as ImportKind;
-    dom.importFile.click();
-  });
-}
-dom.importFile.addEventListener('change', async () => {
-  const file = dom.importFile.files?.[0];
-  dom.importFile.value = '';
-  if (!file) return;
+dom.editDataBtn.addEventListener('click', async () => {
+  if (!current) return;
+  let where;
   try {
-    if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') {
-      showToast('Choose a .csv file');
-      return;
-    }
-    await importCsv(importKind, await file.text(), file.name);
+    where = await fileLocations(current.name);
   } catch (err) {
-    showToast(err instanceof Error ? err.message : 'Import failed');
+    console.error(err);
+    showToast(err instanceof Error ? err.message : "Couldn't find your data files");
+    return;
+  }
+  if (!where) {
+    showToast("Your data folder isn't connected right now. Connect it under Data & backup, then try again");
+    return;
+  }
+  const files = where.files.map((f, i) => ({ label: FILE_LABELS[i], name: f.path ?? f.name, ...(f.url ? { url: f.url } : {}) }));
+  const how = {
+    drive: 'Each link opens the file in Google Sheets, where you can add, change or delete rows. Sheets saves as you type.',
+    folder: 'Open the files in the folder you chose with Excel, Numbers or a text editor, then save them as CSV.',
+    service: 'Open the files with Excel, Numbers or a text editor, then save them as CSV.',
+  }[where.store];
+  const lead =
+    where.store === 'drive' ? `${current.name}'s data is in your Google Drive, in the "${where.folder.split(' › ').pop()}" folder:`
+    : where.store === 'folder' ? `${current.name}'s data is in the folder "${where.folder}":`
+    : `${current.name}'s data is in ${where.folder}:`;
+  const reload = await showDataFiles({ where: lead, files, how });
+  if (reload && current) {
+    await reloadCurrent();
+    showToast('Reloaded your data files');
   }
 });
 
@@ -914,10 +903,11 @@ new ResizeObserver(([entry]) => {
 }).observe(dom.exerciseCard);
 
 // Recompute stats when the app comes back into view, since the windows depend on today's date.
-// With Google Drive, also reload the profile: it may have been changed from another device.
+// Also reload the profile from its files: they may have been edited directly (see "Edit data…") or changed
+// from another device.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  if (userdataStatus() === 'drive' && current) void reloadCurrent();
+  if (current) void reloadCurrent();
   else render();
 });
 

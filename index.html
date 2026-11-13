@@ -338,7 +338,6 @@
         <section class="quiet-section">
           <h2>Data &amp; backup</h2>
           <p id="folder-status"></p>
-          <ul class="folder-files" id="folder-files" hidden></ul>
           <div class="button-row folder-actions" id="folder-actions" hidden>
             <button type="button" class="secondary" id="choose-folder-btn">Choose data folder…</button>
             <button type="button" class="secondary" id="reconnect-folder-btn">Reconnect folder</button>
@@ -347,21 +346,33 @@
             <button type="button" class="secondary" id="sign-out-drive-btn">Sign out of Google Drive</button>
           </div>
           <p>
-            Export CSV files now and then as a backup. Import adds the rows of an exported weight, food or exercise CSV to your
-            profile; rows already logged are skipped.
+            Export downloads your weight, food and exercise data as one .zip of CSV files, as a backup. To add or fix
+            entries in bulk, edit the files in your data folder directly.
           </p>
           <div class="button-row">
-            <button type="button" class="secondary" id="export-csv-btn">Export weight CSV</button>
-            <button type="button" class="secondary" id="export-food-csv-btn">Export food CSV</button>
-            <button type="button" class="secondary" id="export-exercise-csv-btn">Export exercise CSV</button>
-            <button type="button" class="secondary" id="import-btn" data-import="weight">Import weight CSV</button>
-            <button type="button" class="secondary" id="import-food-btn" data-import="food">Import food CSV</button>
-            <button type="button" class="secondary" id="import-exercise-btn" data-import="exercise">Import exercise CSV</button>
-            <input type="file" id="import-file" accept="text/csv,.csv" hidden />
+            <button type="button" class="secondary" id="export-btn">Export data (.zip)</button>
+            <button type="button" class="secondary" id="edit-data-btn">Edit data…</button>
           </div>
         </section>
       </div>
     </main>
+
+    <dialog id="edit-dialog" class="confirm-dialog" aria-labelledby="edit-title">
+      <form method="dialog">
+        <h2 id="edit-title">Edit your data</h2>
+        <p id="edit-where"></p>
+        <ul id="edit-files" class="edit-files"></ul>
+        <p id="edit-how" class="muted small"></p>
+        <p class="muted small">
+          Keep the header row. Write dates as <code>YYYY-MM-DD HH:MM</code>, e.g. <code>2026-11-13 07:30</code>.
+          Rows the app can't read are left out.
+        </p>
+        <div class="button-row">
+          <button type="submit" value="reload" id="edit-reload">I'm done, reload</button>
+          <button type="submit" value="close" class="secondary" formnovalidate autofocus>Close</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
       <form method="dialog">

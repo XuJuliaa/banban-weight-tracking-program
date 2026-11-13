@@ -555,7 +555,6 @@ code { font-size: 0.85em; }
 .quiet-section code { font-size: 0.95em; color: var(--text); overflow-wrap: anywhere; }
 .quiet-section .button-row { margin-top: 8px; }
 .quiet-section button { min-height: 32px; padding: 4px 10px; font-size: 0.8rem; font-weight: 500; }
-.folder-files { margin: 0 0 8px; padding-left: 18px; }
 
 /* Correct a weight: lives at the end of the weight chart's "Show data table", so it's hidden until opened. */
 .override-panel {
@@ -582,6 +581,12 @@ code { font-size: 0.85em; }
 .confirm-dialog p { margin: 0 0 8px; }
 .confirm-dialog ul { margin: 0 0 8px; padding-left: 20px; }
 .confirm-dialog .warning { color: var(--danger); font-weight: 600; }
+
+/* Import pop-up: per-entry conflict choices */
+
+/* "Edit data" dialog: the data files, with links to the Google Sheets on Drive. */
+.edit-files { margin: 8px 0 12px; padding-left: 20px; display: grid; gap: 6px; }
+.edit-files a, .edit-files code { overflow-wrap: anywhere; }
 
 /* Food breakdown pie. Category colours: validated categorical palette slots 1-6 (fixed per category). */
 :root {
