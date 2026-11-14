@@ -1,7 +1,8 @@
 // Google Drive as the data folder: the same CSV files, kept in a "BanBan Weight Tracker" folder in the user's
-// own Drive. Works in any browser, phones included. Everything runs in the page: Google Identity
-// Services signs the user in and hands out a short-lived access token (kept for this tab only), and the
-// Drive REST API is called with fetch. The drive.file permission only lets the app see files it created.
+// own Drive as Google Sheets, so the user can edit them right in Drive. Works in any browser, phones included.
+// Everything runs in the page: Google Identity Services signs the user in and hands out a short-lived access
+// token (kept for this tab only), and the Drive REST API is called with fetch.
+// The drive.file permission only lets the app see files it created.
 
 import { del, get, set } from 'idb-keyval';
 import type { TextStore } from './profile-files';
@@ -228,74 +229,115 @@ export async function nameFolder(getToken: GetToken, folderId: string): Promise<
   return true;
 }
 
-/** The Drive folder `folderId` as a TextStore. File ids are looked up by name and cached. */
-export function driveTextStore(getToken: GetToken, folderId: string): TextStore {
-  let ids: Map<string, string> | null = null;
+const SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 
-  async function index(): Promise<Map<string, string>> {
-    if (ids) return ids;
+/** One file in the app's folder: a Google Sheet (editable in Drive), or a plain CSV from before Sheets were used. */
+interface DriveFile {
+  id: string;
+  sheet: boolean;
+}
+
+/**
+ * The Drive folder `folderId` as a TextStore. Each "x.csv" is kept as a Google Sheet named "x", so it can be
+ * edited right in Google Sheets on any device; it's read back as CSV (Drive's export) and written by uploading
+ * CSV, which Drive converts. A plain "x.csv" left from before is turned into a Sheet the first time it's read
+ * or written, and the old file is moved to the Drive trash. File ids are looked up by name and cached.
+ */
+export function driveTextStore(getToken: GetToken, folderId: string): TextStore {
+  let files: Map<string, DriveFile> | null = null;
+
+  async function index(): Promise<Map<string, DriveFile>> {
+    if (files) return files;
     const q = `${quote(folderId)} in parents and trashed=false`;
-    const map = new Map<string, string>();
+    const map = new Map<string, DriveFile>();
     let page = '';
     do {
-      const body = await json<{ files: { id: string; name: string }[]; nextPageToken?: string }>(
-        await driveFetch(getToken, `${API}/files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name)&pageSize=1000${page ? `&pageToken=${page}` : ''}`),
+      const body = await json<{ files: { id: string; name: string; mimeType?: string }[]; nextPageToken?: string }>(
+        await driveFetch(getToken, `${API}/files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name,mimeType)&pageSize=1000${page ? `&pageToken=${page}` : ''}`),
       );
-      for (const f of body.files) map.set(f.name, f.id);
+      for (const f of body.files) {
+        if (f.mimeType === SHEET_MIME) map.set(`${f.name}.csv`, { id: f.id, sheet: true });
+        // A Sheet wins over a leftover CSV of the same name.
+        else if (/\.csv$/i.test(f.name) && !map.get(f.name)?.sheet) map.set(f.name, { id: f.id, sheet: false });
+      }
       page = body.nextPageToken ?? '';
     } while (page);
-    return (ids = map);
+    return (files = map);
+  }
+
+  /** Creates the Sheet for `name` ("x.csv" → "x") from CSV text. */
+  async function createSheet(name: string, text: string): Promise<string> {
+    const boundary = `wt-${Math.random().toString(36).slice(2)}`;
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+      JSON.stringify({ name: name.replace(/\.csv$/i, ''), parents: [folderId], mimeType: SHEET_MIME }) +
+      `\r\n--${boundary}\r\nContent-Type: text/csv; charset=UTF-8\r\n\r\n${text}\r\n--${boundary}--`;
+    const created = await json<{ id: string }>(
+      await driveFetch(getToken, `${UPLOAD}/files?uploadType=multipart&fields=id`, {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body,
+      }),
+    );
+    return created.id;
+  }
+
+  /** Replaces a plain CSV with a Sheet holding `text`, and moves the CSV to the trash (it can be restored from there). */
+  async function toSheet(name: string, old: DriveFile, text: string): Promise<void> {
+    const id = await createSheet(name, text);
+    files?.set(name, { id, sheet: true });
+    await json(
+      await driveFetch(getToken, `${API}/files/${old.id}?fields=id`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashed: true }),
+      }),
+    );
   }
 
   return {
     async list() {
-      ids = null; // A fresh listing, so files written from another device show up.
+      files = null; // A fresh listing, so files written from another device show up.
       return [...(await index()).keys()];
     },
     async read(name) {
-      const id = (await index()).get(name);
-      if (!id) return null;
-      const res = await driveFetch(getToken, `${API}/files/${id}?alt=media`);
+      const file = (await index()).get(name);
+      if (!file) return null;
+      const res = await driveFetch(getToken, file.sheet ? `${API}/files/${file.id}/export?mimeType=text%2Fcsv` : `${API}/files/${file.id}?alt=media`);
       if (res.status === 404) {
-        ids?.delete(name);
+        files?.delete(name);
         return null;
       }
       if (!res.ok) throw new Error(`Google Drive ${res.status}: ${await res.text()}`);
-      return res.text();
+      const text = await res.text();
+      if (!file.sheet) await toSheet(name, file, text);
+      return text;
     },
     async write(name, text) {
       const map = await index();
-      const id = map.get(name);
-      if (id) {
+      const file = map.get(name);
+      if (file?.sheet) {
         await json(
-          await driveFetch(getToken, `${UPLOAD}/files/${id}?uploadType=media&fields=id`, {
+          await driveFetch(getToken, `${UPLOAD}/files/${file.id}?uploadType=media&fields=id`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'text/csv' },
+            headers: { 'Content-Type': 'text/csv; charset=UTF-8' },
             body: text,
           }),
         );
-        return;
-      }
-      const boundary = `wt-${Math.random().toString(36).slice(2)}`;
-      const body =
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
-        JSON.stringify({ name, parents: [folderId], mimeType: 'text/csv' }) +
-        `\r\n--${boundary}\r\nContent-Type: text/csv; charset=UTF-8\r\n\r\n${text}\r\n--${boundary}--`;
-      const created = await json<{ id: string }>(
-        await driveFetch(getToken, `${UPLOAD}/files?uploadType=multipart&fields=id`, {
-          method: 'POST',
-          headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-          body,
-        }),
-      );
-      map.set(name, created.id);
+      } else if (file) await toSheet(name, file, text);
+      else map.set(name, { id: await createSheet(name, text), sheet: true });
     },
     async remove(name) {
       const map = await index();
-      const id = map.get(name);
-      if (!id) return;
-      await driveFetch(getToken, `${API}/files/${id}`, { method: 'DELETE' });
+      const file = map.get(name);
+      if (!file) return;
+      await driveFetch(getToken, `${API}/files/${file.id}`, { method: 'DELETE' });
       map.delete(name);
+    },
+    async link(name) {
+      const file = (await index()).get(name);
+      if (!file) return null;
+      return file.sheet ? `https://docs.google.com/spreadsheets/d/${file.id}/edit` : `https://drive.google.com/file/d/${file.id}/view`;
     },
   };
 }

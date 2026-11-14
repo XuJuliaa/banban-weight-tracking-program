@@ -25,8 +25,6 @@ import {
   UNLOCK_PCT,
   weightSeries,
 } from './stats';
-import { profileSlug } from './names';
-import { profileFiles } from './profile-files';
 import type { UserData } from './types';
 import { pointsIn } from './units';
 import { folderSupported } from './folder-store';
@@ -81,9 +79,7 @@ export const dom = {
   foodTableBody: el<HTMLTableSectionElement>('food-table-body'),
   foodEmpty: el<HTMLParagraphElement>('food-empty'),
   foodList: el<HTMLDivElement>('food-list'),
-  exportCsvBtn: el<HTMLButtonElement>('export-csv-btn'),
-  exportFoodCsvBtn: el<HTMLButtonElement>('export-food-csv-btn'),
-  exportExerciseCsvBtn: el<HTMLButtonElement>('export-exercise-csv-btn'),
+  exportBtn: el<HTMLButtonElement>('export-btn'),
   exerciseForm: el<HTMLFormElement>('exercise-form'),
   exerciseName: el<HTMLInputElement>('exercise-name'),
   exerciseCategory: el<HTMLSelectElement>('exercise-category'),
@@ -101,11 +97,7 @@ export const dom = {
   exerciseTableSummary: el<HTMLElement>('exercise-table-summary'),
   exerciseTableBody: el<HTMLTableSectionElement>('exercise-table-body'),
   folderStatus: el<HTMLParagraphElement>('folder-status'),
-  folderFiles: el<HTMLUListElement>('folder-files'),
-  importBtn: el<HTMLButtonElement>('import-btn'),
-  importFile: el<HTMLInputElement>('import-file'),
-  importFoodBtn: el<HTMLButtonElement>('import-food-btn'),
-  importExerciseBtn: el<HTMLButtonElement>('import-exercise-btn'),
+  editDataBtn: el<HTMLButtonElement>('edit-data-btn'),
   folderActions: el<HTMLDivElement>('folder-actions'),
   chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
   reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
@@ -124,6 +116,10 @@ export const dom = {
   overrideWeight: el<HTMLInputElement>('override-weight'),
   overrideUnit: el<HTMLSpanElement>('override-unit'),
   overrideCurrent: el<HTMLParagraphElement>('override-current'),
+  editDialog: el<HTMLDialogElement>('edit-dialog'),
+  editWhere: el<HTMLParagraphElement>('edit-where'),
+  editFiles: el<HTMLUListElement>('edit-files'),
+  editHow: el<HTMLParagraphElement>('edit-how'),
   confirmDialog: el<HTMLDialogElement>('confirm-dialog'),
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
@@ -150,7 +146,7 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 
-const formatWeight = (w: number) => w.toFixed(1);
+export const formatWeight = (w: number) => w.toFixed(1);
 
 /** The top bar: who is logged in, with Log out. Hidden on the login page. */
 export function renderAccount(name: string | null): void {
@@ -360,7 +356,7 @@ const canFolder = () => folderSupported();
 const canDrive = () => false;
 
 export function renderFolder(status: UserdataStatus, path: string | null, user: UserData | null): void {
-  const saving = user ? `${user.name}'s data is saved to these files after every change:` : '';
+  const saving = user ? `${user.name}'s data is saved there as CSV files after every change.` : '';
   const account = driveAccount();
   const text: Record<UserdataStatus, string> = {
     unknown: 'Data folder: checking…',
@@ -368,7 +364,7 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
     offline: "Data folder: can't reach the local save service, so changes are only saved in this browser for now. Is npm run dev still running?",
     folder: `Data folder: "${path}" (the folder you chose). ${saving}`,
     'folder-permission': `Data folder: "${path}". The browser needs your OK to use it again.`,
-    drive: `Data folder: ${path}${account ? ` in ${account}'s Drive` : ''}. ${saving}`,
+    drive: `Data folder: ${path}${account ? ` in ${account}'s Drive` : ''}. ${user ? `${user.name}'s data is saved there as Google Sheets after every change.` : ''}`,
     'drive-signin': `Data folder: ${path}. Sign in to Google again to keep saving there.`,
     unavailable: 'Data folder: none chosen yet.',
     unsupported: "Data folder: none. This browser can't save to a folder.",
@@ -390,21 +386,6 @@ export function renderFolder(status: UserdataStatus, path: string | null, user: 
   ];
   for (const [button, show] of buttons) button.hidden = !show;
   dom.folderActions.hidden = !buttons.some(([, show]) => show);
-
-  const showFiles = (status === 'connected' || status === 'folder' || status === 'drive') && user !== null;
-  dom.folderFiles.hidden = !showFiles;
-  if (showFiles) {
-    const dir = status === 'connected' ? 'testdata' : path;
-    dom.folderFiles.replaceChildren(
-      ...profileFiles(profileSlug(user.name)).map((name) => {
-        const li = document.createElement('li');
-        const code = document.createElement('code');
-        code.textContent = `${dir}/${name}`;
-        li.append(code);
-        return li;
-      }),
-    );
-  }
 }
 
 /** True when data can be saved to files: the local testdata/ folder, a chosen folder, or Google Drive. */
@@ -531,6 +512,43 @@ export function confirmChange(opts: { title: string; message: string; lines?: st
   dom.confirmDialog.showModal();
   return new Promise((resolve) => {
     dom.confirmDialog.addEventListener('close', () => resolve(dom.confirmDialog.returnValue === 'confirm'), { once: true });
+  });
+}
+
+/** Where a profile's files are, for the "Edit data" dialog. A file with a `url` opens in a new tab. */
+export interface DataFiles {
+  where: string;
+  files: { label: string; name: string; url?: string }[];
+  how: string;
+}
+
+/** Shows where to edit the data files. Resolves true when the user is done editing and wants a reload. */
+export function showDataFiles(info: DataFiles): Promise<boolean> {
+  dom.editWhere.textContent = info.where;
+  dom.editFiles.replaceChildren(
+    ...info.files.map((f) => {
+      const li = document.createElement('li');
+      li.append(`${f.label}: `);
+      if (f.url) {
+        const link = document.createElement('a');
+        link.href = f.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = f.name;
+        li.append(link);
+      } else {
+        const code = document.createElement('code');
+        code.textContent = f.name;
+        li.append(code);
+      }
+      return li;
+    }),
+  );
+  dom.editHow.textContent = info.how;
+  dom.editDialog.returnValue = '';
+  dom.editDialog.showModal();
+  return new Promise((resolve) => {
+    dom.editDialog.addEventListener('close', () => resolve(dom.editDialog.returnValue === 'reload'), { once: true });
   });
 }
 
@@ -680,7 +698,13 @@ export function renderExerciseBreakdown(user: UserData, startDay: number, endDay
       const category = document.createElement('td');
       const tag = document.createElement('span');
       tag.className = `food-tag ex-${e.category}`;
-      tag.append(document.createElement('i'), exerciseCategoryLabel(e.category));
+      // Category is editable here: a dropdown per row (see the change handler in main.ts).
+      const select = document.createElement('select');
+      select.className = 'food-category-select exercise-category-select';
+      select.dataset.exerciseId = e.id;
+      select.setAttribute('aria-label', `Category for ${e.name}, ${date.textContent}`);
+      select.append(...EXERCISE_CATEGORIES.map((c) => new Option(c.label, c.id, false, c.id === e.category)));
+      tag.append(document.createElement('i'), select);
       category.append(tag);
       const minutes = document.createElement('td');
       minutes.className = 'num';

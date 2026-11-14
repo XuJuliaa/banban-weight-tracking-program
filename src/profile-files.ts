@@ -31,6 +31,8 @@ export interface TextStore {
   remove(name: string): Promise<void>;
   /** Names of the files in the folder (empty if the folder doesn't exist). */
   list(): Promise<string[]>;
+  /** A web link that opens the file for editing (Google Drive only), or null if it doesn't exist yet. */
+  link?(name: string): Promise<string | null>;
 }
 
 export const INDEX = 'profiles.csv';

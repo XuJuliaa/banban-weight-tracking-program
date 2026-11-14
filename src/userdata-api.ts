@@ -216,6 +216,37 @@ export async function pushUserFiles(user: UserData): Promise<void> {
   if (store) await guarded(() => files.writeProfile(store, files.validateUser(user, slug)));
 }
 
+/** Where one profile's files are kept, so the user can edit them directly. */
+export interface FileLocations {
+  store: 'service' | 'folder' | 'drive';
+  /** The data folder: an absolute path, a picked folder's name, or "Google Drive › BanBan Weight Tracker". */
+  folder: string;
+  /** Weight, food and exercise, in that order. `url` opens a Google Sheet; `path` is the full path when known. */
+  files: { name: string; path?: string; url?: string }[];
+}
+
+/** Where `name`'s weight, food and exercise files are, or null when there's no data folder to edit. */
+export async function fileLocations(name: string): Promise<FileLocations | null> {
+  const slug = profileSlug(name);
+  const names = files.profileFiles(slug);
+  if (!google && service === 'connected') {
+    const dir = servicePath ?? 'testdata';
+    const sep = dir.includes('\\') ? '\\' : '/';
+    return { store: 'service', folder: dir, files: names.map((n) => ({ name: n, path: `${dir.replace(/[\\/]$/, '')}${sep}${n}` })) };
+  }
+  const store = await activeStore();
+  if (!store) return null;
+  if (store === driveStore) {
+    const links = await guarded(() => Promise.all(names.map((n) => store.link?.(n) ?? Promise.resolve(null))));
+    return {
+      store: 'drive',
+      folder: `Google Drive › ${DRIVE_FOLDER_NAME}`,
+      files: names.map((n, i) => ({ name: n.replace(/\.csv$/, ''), ...(links[i] ? { url: links[i]! } : {}) })),
+    };
+  }
+  return { store: 'folder', folder: folder?.name ?? '', files: names.map((n) => ({ name: n })) };
+}
+
 /** Lets the user pick a data folder (call from a click). Returns its name, or null if they cancelled. */
 export async function chooseFolder(): Promise<string | null> {
   const picked = await pickFolder();
