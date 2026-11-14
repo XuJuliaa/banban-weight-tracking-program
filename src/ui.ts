@@ -107,6 +107,7 @@ export const dom = {
   folderGateText: el<HTMLParagraphElement>('folder-gate-text'),
   folderGateBtn: el<HTMLButtonElement>('folder-gate-btn'),
   driveGateBtn: el<HTMLButtonElement>('drive-gate-btn'),
+  about: el<HTMLElement>('about'),
   googleLogin: el<HTMLDivElement>('google-login'),
   googleLoginBtn: el<HTMLButtonElement>('google-login-btn'),
   useDriveBtn: el<HTMLButtonElement>('use-drive-btn'),
@@ -177,6 +178,7 @@ export function showFormError(form: HTMLElement, message: string | null): void {
 
 export function renderUser(user: UserData | null, now: number): void {
   dom.login.hidden = user !== null;
+  dom.about.hidden = user !== null;
   dom.tracker.hidden = user === null;
   if (!user) return;
 

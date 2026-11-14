@@ -15,9 +15,9 @@ export default defineConfig(({ command }) => ({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'Banban Weight Tracker',
+        name: 'BanBan Weight Tracker',
         short_name: 'Weight',
-        description: 'Private, offline weight tracking. Data stays on this device.',
+        description: 'Private weight, food and exercise tracking. Your data stays in your own Google Drive or folder.',
         theme_color: '#af5a3f',
         background_color: '#fdf8f4',
         display: 'standalone',

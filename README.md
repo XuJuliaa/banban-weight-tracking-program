@@ -1,6 +1,6 @@
 # banban-weight-tracking-program
 
-A private tracker for **weight, food and exercise**. There's no account, no sign-in and no remote server.
+**BanBan Weight Tracker**: a private tracker for **weight, food and exercise**. There's no remote server: data is saved in your own Google Drive or in a folder you choose. See the [privacy policy](public/privacy.html), live at https://xujuliaa.github.io/banban-weight-tracking-program/privacy.html.
 
 - **Running locally** with `npm run dev`, every profile is saved as plain CSV files in the project's `testdata/` folder.
 - **Hosted as a static site** (just open a link), you choose where the same CSV files are kept when creating a profile:
@@ -361,6 +361,16 @@ python3 -m http.server 8080
 ---
 
 ## Privacy
-- No analytics or tracking, and no data is sent anywhere. There's no account with us: a username only names a profile.
+- No analytics, ads or tracking, and no server of ours: nothing is sent to the developer. A username only names a profile.
 - Locally, data lives only in `testdata/` (git-ignored) and the browser's IndexedDB.
-- On a hosted site, data lives only in the folder the visitor chooses, or in their own Google Drive, plus a browser cache. The page sends data nowhere else.
+- On a hosted site, data lives only in the folder the visitor chooses, or in their own Google Drive, plus a browser cache. The page talks only to GitHub Pages (which serves it) and Google (sign-in and Drive).
+- The public [privacy policy](public/privacy.html) (`privacy.html` on the site) spells this out, including the Google API Limited Use statement. The logged-out page describes the app and links to it, and every page has it in the footer. **Keep the policy in step with the code:** if the app starts storing, sending or asking for anything new (a new Google scope, a server, analytics, a font or script from another site), update `public/privacy.html` and its effective date in the same change.
+
+### Google brand verification
+Publishing the OAuth app (**Google Auth Platform → Audience → Publish app**) lets anyone sign in; `drive.file` is a non-sensitive scope, so that needs no review. Brand verification is optional and shows the app's name and logo on Google's consent screen. It needs:
+- **Branding:** app name **BanBan Weight Tracker** (the same as on the homepage), support email, logo, developer contact.
+- **Home page:** `https://xujuliaa.github.io/banban-weight-tracking-program/` (its "What BanBan Weight Tracker does" section describes the app and links to the policy).
+- **Privacy policy:** `https://xujuliaa.github.io/banban-weight-tracking-program/privacy.html`.
+- **Authorized domain:** `xujuliaa.github.io`, verified in [Google Search Console](https://search.google.com/search-console) with a **URL prefix** property for `https://xujuliaa.github.io/` (a Domain property needs DNS access, which `github.io` doesn't give you). Search Console's HTML file has to be served from the root, so it goes in a `XuJuliaa/xujuliaa.github.io` repository (GitHub's user site), not in this repo, which is served under `/banban-weight-tracking-program/`. Use the same Google account that owns the Cloud project.
+
+Then submit from **Google Auth Platform → Verification Center**.

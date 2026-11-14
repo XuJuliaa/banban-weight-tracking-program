@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy · BanBan Weight Tracker</title>
+    <meta name="description" content="How BanBan Weight Tracker handles your data, including data from your Google account." />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <style>
+      :root {
+        --bg: #fdf8f4; --text: #2b211c; --muted: #6b5c53; --accent: #af5a3f; --border: #ead9cd; --card: #fff;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #1c1714; --text: #f3ebe5; --muted: #b9a89c; --accent: #e38f72; --border: #3a302a; --card: #241e1a;
+          color-scheme: dark;
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #1c1714; --text: #f3ebe5; --muted: #b9a89c; --accent: #e38f72; --border: #3a302a; --card: #241e1a;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--text);
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+      h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 4px; }
+      h2 { font-size: 1.2rem; margin: 2em 0 0.4em; }
+      h3 { font-size: 1rem; margin: 1.4em 0 0.3em; }
+      p, li { overflow-wrap: anywhere; }
+      a { color: var(--accent); }
+      .muted { color: var(--muted); }
+      .summary { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 4px 20px; margin: 24px 0; }
+      table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 8px 0; display: block; overflow-x: auto; }
+      th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+      th { color: var(--muted); font-weight: 600; }
+      code { font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p><a href="./">← BanBan Weight Tracker</a></p>
+      <h1>Privacy Policy</h1>
+      <p class="muted">Effective November 13, 2026</p>
+
+      <p>
+        BanBan Weight Tracker ("the app", "we") is a free web app for logging your weight, food and exercise, at
+        <a href="https://xujuliaa.github.io/banban-weight-tracking-program/">xujuliaa.github.io/banban-weight-tracking-program</a>.
+        It is a personal project run by [YOUR NAME]. This policy explains what data the app handles, where it is kept and
+        what control you have over it.
+      </p>
+
+      <div class="summary">
+        <p><strong>In short:</strong></p>
+        <ul>
+          <li>The app has no server and no database of its own. Everything runs in your browser.</li>
+          <li>Your entries are saved where you choose: your own Google Drive, or a folder on your own computer. We never receive them.</li>
+          <li>No ads, no analytics, no tracking, and no cookies set by the app. We don't sell or share your data.</li>
+          <li>With Google, the app can only see the files it created itself, not the rest of your Drive.</li>
+        </ul>
+      </div>
+
+      <h2>1. What data the app handles</h2>
+      <ul>
+        <li><strong>What you log:</strong> your weigh-ins (in kg and lb), the foods you enter and their category, your exercise sessions (activity, category, minutes), and the date and time of each.</li>
+        <li><strong>Your profile:</strong> a profile name and your preferred unit (kg or lb).</li>
+        <li><strong>From your Google account, if you use Continue with Google:</strong> your email address and name, and the IDs of the app's Drive folder and files. See section 3.</li>
+        <li><strong>Settings:</strong> your color theme, the unit you last used at login, and the exercise tab you last opened.</li>
+      </ul>
+      <p>
+        Weight, food and exercise records can say something about your health. The app treats them as private: they stay
+        in storage you control and are never sent to us. The app is not a medical device and does not give medical advice.
+      </p>
+
+      <h2>2. Where your data is kept</h2>
+      <p>The app runs entirely in your browser and saves your data in places you control:</p>
+      <ul>
+        <li><strong>Your Google Drive</strong> (Continue with Google): a folder named "BanBan Weight Tracker" in your own Drive, with one Google Sheet each for your weight, food and exercise logs and a list of profiles. Google stores these files under <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.</li>
+        <li><strong>A folder on your computer</strong> (username login, in browsers that support it): CSV files in the folder you pick. The app can only open the folder you choose.</li>
+        <li><strong>Your browser</strong>, on your device:
+          <table>
+            <thead><tr><th>Where</th><th>What</th></tr></thead>
+            <tbody>
+              <tr><td>IndexedDB</td><td>A copy of your profiles and entries so the app works offline; the folder you chose; for Google Drive, the Drive folder ID and your email address.</td></tr>
+              <tr><td>Local storage</td><td>Color theme, the unit used at login, the last exercise tab.</td></tr>
+              <tr><td>Session storage</td><td>Which profile is logged in on this tab. It is cleared when the tab closes.</td></tr>
+              <tr><td>Service worker cache</td><td>The app's own files (pages, scripts, icon) so it loads offline. No personal data.</td></tr>
+            </tbody>
+          </table>
+        </li>
+      </ul>
+      <p>
+        The Google sign-in token is kept only in the page's memory while you use it, is never written to storage, and
+        expires after about an hour.
+      </p>
+
+      <h2>3. Google user data</h2>
+      <p>If you choose Continue with Google, the app asks Google for one permission, <code>https://www.googleapis.com/auth/drive.file</code>, which Google shows as access to "only the specific Google Drive files you use with this app".</p>
+      <h3>What the app accesses</h3>
+      <ul>
+        <li>The "BanBan Weight Tracker" folder and the files the app created in it. The app cannot see, open or change any other file in your Drive. Files you add to that folder yourself are not visible to it either.</li>
+        <li>Your email address and name, read from Google Drive's account information (<code>about</code>), which the same permission allows.</li>
+      </ul>
+      <h3>How the app uses it</h3>
+      <ul>
+        <li>To create, read and update your weight, food and exercise Sheets when you log, edit or view entries.</li>
+        <li>Once, if your folder still has plain CSV files from an older version of the app, to turn each into a Google Sheet and move the old CSV file to your Drive trash, where you can restore it.</li>
+        <li>Your name sets your profile's display name; your email address keeps your profile with the right Google account and stops a different account from opening it.</li>
+      </ul>
+      <h3>Sharing, transfer and human access</h3>
+      <ul>
+        <li>The app talks to Google directly from your browser. Your Google data is never sent to us or to any other server, and nobody else has access to it.</li>
+        <li>It is not sold, not used for advertising, and not used to train AI or machine-learning models.</li>
+        <li>No person reads your data. We could not do so even if we wanted to, because we never receive it.</li>
+      </ul>
+      <p>
+        BanBan Weight Tracker's use and transfer to any other app of information received from Google APIs will adhere to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+        including the Limited Use requirements.
+      </p>
+
+      <h2>4. Services the app relies on</h2>
+      <ul>
+        <li><strong>GitHub Pages</strong> hosts the app's files. Like any web host, GitHub may log technical information such as your IP address when your browser downloads the page. See the <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub General Privacy Statement</a>.</li>
+        <li><strong>Google</strong> provides the sign-in pop-up and Google Drive. On the hosted site, the page loads Google's sign-in script from <code>accounts.google.com</code>, so Google receives standard request information (such as your IP address and browser) under <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.</li>
+      </ul>
+      <p>The app uses no other third-party services, fonts, analytics or advertising.</p>
+
+      <h2>5. How long data is kept, and how to delete it</h2>
+      <p>Your data stays until you delete it. Because it lives in your own storage, you delete it there:</p>
+      <ul>
+        <li><strong>Google Drive:</strong> delete the "BanBan Weight Tracker" folder (and empty your Drive trash).</li>
+        <li><strong>Remove the app's access to your Google account:</strong> at <a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>. Log out in the app also signs out of Google.</li>
+        <li><strong>A folder on your computer:</strong> delete the CSV files in it.</li>
+        <li><strong>Your browser:</strong> clear this site's data (cookies and site data) in your browser settings.</li>
+      </ul>
+      <p>The app itself has no button that deletes your data, so the steps above are how to remove it.</p>
+
+      <h2>6. Security</h2>
+      <p>
+        The app is served over HTTPS and talks to Google over HTTPS. Your data is protected by your Google account and
+        your device. No method of storage or transfer is completely secure, so keep your Google account and device secure.
+      </p>
+
+      <h2>7. Children</h2>
+      <p>The app is not directed to children under 13, and we do not knowingly handle data from children under 13.</p>
+
+      <h2>8. Changes to this policy</h2>
+      <p>If this policy changes, the new version will be posted on this page with a new effective date.</p>
+
+      <h2>9. Contact</h2>
+      <p>Questions about this policy or your data: [CONTACT EMAIL].</p>
+    </main>
+  </body>
+</html>

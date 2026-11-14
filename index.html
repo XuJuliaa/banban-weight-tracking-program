@@ -5,20 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#af5a3f" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <title>Banban Weight Tracker</title>
+    <title>BanBan Weight Tracker</title>
+    <meta name="description" content="BanBan Weight Tracker: a free, private tracker for your weight, food and exercise. Your data is saved in your own Google Drive or on your own computer, never on our servers." />
     <script>
       // Apply the saved color theme before the page paints, so it doesn't flash the default first.
       try {
         let palette = localStorage.getItem('palette');
         if (palette === 'indigo') palette = 'blue'; // renamed
         if (palette && palette !== 'coral') document.documentElement.dataset.palette = palette;
+        // A profile is logged in on this tab (see accounts.ts): don't flash the logged-out "About" while it opens.
+        if (sessionStorage.getItem('session')) document.documentElement.dataset.session = '';
       } catch {}
     </script>
   </head>
   <body>
     <header class="topbar">
       <div class="title-group">
-        <h1>Weight Tracker</h1>
+        <h1>BanBan Weight Tracker</h1>
         <div class="theme-picker" id="theme-picker" role="group" aria-label="Color theme">
           <button type="button" data-palette="coral" title="Warm coral" aria-label="Warm coral theme" aria-pressed="true"></button>
           <button type="button" data-palette="blue" title="Ocean blue" aria-label="Ocean blue theme" aria-pressed="false"></button>
@@ -102,6 +105,30 @@
         </form>
         <p class="muted small login-note">
           Your username is your profile's name, and a weight you've logged stands in for a password. There's no server: your data is saved as CSV files in your folder.
+        </p>
+      </section>
+
+      <section class="card about-card" id="about" aria-labelledby="about-title">
+        <h2 id="about-title">What BanBan Weight Tracker does</h2>
+        <p>
+          BanBan Weight Tracker is a free, private tracker for your <strong>weight, food and exercise</strong>. It works in
+          any browser, phones included, and can be added to your home screen like an app.
+        </p>
+        <ul>
+          <li><strong>Weight:</strong> log a weigh-in in kg or lb, see your 10-day average, how often you've logged, and a trend chart with a trend line.</li>
+          <li><strong>Food:</strong> log what you eat by category and see the breakdown as a pie chart.</li>
+          <li><strong>Exercise:</strong> log cardio, strength and flexibility sessions and see your minutes per day.</li>
+          <li><strong>Your files:</strong> export everything as a .zip of CSV files, or edit your data directly in your own files.</li>
+        </ul>
+        <h3>Your data stays yours</h3>
+        <p>
+          The app has no server. Your entries are saved where you choose: in a "BanBan Weight Tracker" folder in your own
+          Google Drive (as Google Sheets), or in a folder on your own computer. No ads, no analytics, no tracking.
+        </p>
+        <p>
+          <strong>Continue with Google</strong> asks for permission to use only the Google Drive files this app creates. The
+          app can't see anything else in your Drive, and your data is never sent to us.
+          Read the <a href="privacy.html">privacy policy</a>.
         </p>
       </section>
 
@@ -356,6 +383,12 @@
         </section>
       </div>
     </main>
+
+    <footer class="site-footer">
+      <a href="privacy.html">Privacy policy</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/XuJuliaa/banban-weight-tracking-program">Source code</a>
+    </footer>
 
     <dialog id="edit-dialog" class="confirm-dialog" aria-labelledby="edit-title">
       <form method="dialog">
