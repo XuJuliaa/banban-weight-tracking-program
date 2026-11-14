@@ -123,7 +123,6 @@ function render(): void {
   // Saving to a folder is required: without one, show what to do instead of the app (Log out stays).
   if (renderGate(userdataStatus(), userdataPath(), current !== null)) {
     dom.login.hidden = true;
-    dom.about.hidden = true;
     dom.tracker.hidden = true;
   }
   if (current) renderOverride(current, readDateInput(dom.overrideDate));
@@ -933,5 +932,4 @@ async function start(): Promise<void> {
   else render();
 }
 
-// Once the logged-in profile (if any) has opened, `hidden` alone decides whether "About" shows (see index.html).
-void start().finally(() => delete document.documentElement.dataset.session);
+void start();

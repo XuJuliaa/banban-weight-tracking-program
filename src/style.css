@@ -757,13 +757,7 @@ code { font-size: 0.85em; }
 /* Login page: Log in / Create account tabs over one form each. */
 .login-card { width: min(100%, 460px); margin-inline: auto; }
 
-/* The logged-out page's "What BanBan Weight Tracker does", and the footer with the privacy policy. */
-[data-session] .about-card { display: none; }
-.about-card { width: min(100%, 460px); margin-inline: auto; font-size: 0.92rem; }
-.about-card h2 { margin-bottom: 6px; }
-.about-card h3 { font-size: 0.95rem; margin: 14px 0 4px; }
-.about-card p { margin: 0 0 8px; }
-.about-card ul { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 4px; }
+/* Footer on every screen: About and the privacy policy. */
 .site-footer { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px 24px; font-size: 0.8rem; color: var(--muted); }
 .site-footer a { color: inherit; }
 .login-card h2 { margin-bottom: 0; }

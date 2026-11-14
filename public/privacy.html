@@ -6,43 +6,11 @@
     <title>Privacy Policy · BanBan Weight Tracker</title>
     <meta name="description" content="How BanBan Weight Tracker handles your data, including data from your Google account." />
     <link rel="icon" type="image/svg+xml" href="icon.svg" />
-    <style>
-      :root {
-        --bg: #fdf8f4; --text: #2b211c; --muted: #6b5c53; --accent: #af5a3f; --border: #ead9cd; --card: #fff;
-        color-scheme: light;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]) {
-          --bg: #1c1714; --text: #f3ebe5; --muted: #b9a89c; --accent: #e38f72; --border: #3a302a; --card: #241e1a;
-          color-scheme: dark;
-        }
-      }
-      :root[data-theme="dark"] {
-        --bg: #1c1714; --text: #f3ebe5; --muted: #b9a89c; --accent: #e38f72; --border: #3a302a; --card: #241e1a;
-        color-scheme: dark;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0; background: var(--bg); color: var(--text);
-        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      }
-      main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
-      h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 4px; }
-      h2 { font-size: 1.2rem; margin: 2em 0 0.4em; }
-      h3 { font-size: 1rem; margin: 1.4em 0 0.3em; }
-      p, li { overflow-wrap: anywhere; }
-      a { color: var(--accent); }
-      .muted { color: var(--muted); }
-      .summary { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 4px 20px; margin: 24px 0; }
-      table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 8px 0; display: block; overflow-x: auto; }
-      th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-      th { color: var(--muted); font-weight: 600; }
-      code { font-size: 0.9em; }
-    </style>
+    <link rel="stylesheet" href="pages.css" />
   </head>
   <body>
     <main>
-      <p><a href="./">← BanBan Weight Tracker</a></p>
+      <p><a href="./">← BanBan Weight Tracker</a> · <a href="about.html">About</a></p>
       <h1>Privacy Policy</h1>
       <p class="muted">Effective November 13, 2026</p>
 
@@ -86,14 +54,15 @@
             <tbody>
               <tr><td>IndexedDB</td><td>A copy of your profiles and entries so the app works offline; the folder you chose; for Google Drive, the Drive folder ID and your email address.</td></tr>
               <tr><td>Local storage</td><td>Color theme, the unit used at login, the last exercise tab.</td></tr>
-              <tr><td>Session storage</td><td>Which profile is logged in on this tab. It is cleared when the tab closes.</td></tr>
+              <tr><td>Session storage</td><td>Which profile is logged in on this tab and, with Google, the sign-in token (see below). Both are cleared when the tab closes.</td></tr>
               <tr><td>Service worker cache</td><td>The app's own files (pages, scripts, icon) so it loads offline. No personal data.</td></tr>
             </tbody>
           </table>
         </li>
       </ul>
       <p>
-        The Google sign-in token is kept only in the page's memory while you use it, is never written to storage, and
+        While you're signed in with Google, the sign-in token is kept in this tab's session storage, so reloading the page
+        doesn't sign you out. It is only ever sent to Google, is deleted when the tab closes or when you log out, and
         expires after about an hour.
       </p>
 
