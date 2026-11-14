@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#af5a3f" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <title>Banban Weight Tracker</title>
+    <title>BanBan Weight Tracker</title>
+    <meta name="description" content="BanBan Weight Tracker: a free, private tracker for your weight, food and exercise. Your data is saved in your own Google Drive or on your own computer, never on our servers." />
     <script>
       // Apply the saved color theme before the page paints, so it doesn't flash the default first.
       try {
@@ -18,7 +19,7 @@
   <body>
     <header class="topbar">
       <div class="title-group">
-        <h1>Weight Tracker</h1>
+        <h1>BanBan Weight Tracker</h1>
         <div class="theme-picker" id="theme-picker" role="group" aria-label="Color theme">
           <button type="button" data-palette="coral" title="Warm coral" aria-label="Warm coral theme" aria-pressed="true"></button>
           <button type="button" data-palette="blue" title="Ocean blue" aria-label="Ocean blue theme" aria-pressed="false"></button>
@@ -101,7 +102,7 @@
           <button type="submit">Create account</button>
         </form>
         <p class="muted small login-note">
-          Your username is your profile's name, and a weight you've logged stands in for a password. There's no server: your data is saved as CSV files in your folder.
+          Your username is your profile's name, and a weight you've logged stands in for a password.
         </p>
       </section>
 
@@ -356,6 +357,14 @@
         </section>
       </div>
     </main>
+
+    <footer class="site-footer">
+      <a href="about.html">About</a>
+      <span aria-hidden="true">·</span>
+      <a href="privacy.html">Privacy policy</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/XuJuliaa/banban-weight-tracking-program">Source code</a>
+    </footer>
 
     <dialog id="edit-dialog" class="confirm-dialog" aria-labelledby="edit-title">
       <form method="dialog">

@@ -3,7 +3,8 @@
 A free, private tracker for **weight, food and exercise**: https://xujuliaa.github.io/banban-weight-tracking-program/
 
 It runs entirely in the browser and has no server. Your data is saved as files you own, in your Google Drive or in a
-folder on your computer, and nothing is sent to the developer.
+folder on your computer, and nothing is sent to the developer. See the
+[privacy policy](https://xujuliaa.github.io/banban-weight-tracking-program/privacy.html).
 
 ## What it does
 - **Weight:** log weigh-ins in kg or lb, and see your 10-day average, how regularly you log, and a trend chart.
@@ -27,7 +28,8 @@ npm run dev     # http://localhost:5173
 npm test
 ```
 
-Built with Vite and TypeScript; the charts are hand-drawn SVG. Every push to `main` deploys to GitHub Pages.
+Built with Vite and TypeScript; the charts are hand-drawn SVG. Every push to `main` deploys to GitHub Pages. If the app
+starts storing, sending or asking Google for anything new, update `public/privacy.html` in the same change.
 
 Google sign-in needs an OAuth client ID of type *Web application* from the Google Cloud console, with the authorized
 origins `http://localhost:5173`, `http://localhost:4173` and `https://xujuliaa.github.io`. Put it in `.env.local` as
