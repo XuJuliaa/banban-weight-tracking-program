@@ -182,3 +182,30 @@ describe('driveUser', () => {
     expect(drive.calls[0].url).toContain('about?fields=user(emailAddress,displayName)');
   });
 });
+
+describe('staying signed in across a reload', () => {
+  const load = async (saved: unknown) => {
+    vi.resetModules();
+    const items = new Map<string, string>(saved ? [['driveToken', JSON.stringify(saved)]] : []);
+    vi.stubGlobal('sessionStorage', {
+      getItem: (k: string) => items.get(k) ?? null,
+      setItem: (k: string, v: string) => void items.set(k, v),
+      removeItem: (k: string) => void items.delete(k),
+    });
+    return { store: await import('./drive-store'), items };
+  };
+
+  it("picks up this tab's token until it expires", async () => {
+    expect((await load({ value: 'tok-1', expires: Date.now() + 30 * 60_000 })).store.currentToken()).toBe('tok-1');
+    expect((await load({ value: 'tok-1', expires: Date.now() - 1000 })).store.currentToken()).toBeNull();
+    expect((await load(null)).store.currentToken()).toBeNull();
+  });
+
+  it('forgets the token on sign-out', async () => {
+    const { store, items } = await load({ value: 'tok-1', expires: Date.now() + 30 * 60_000 });
+    vi.stubGlobal('indexedDB', undefined);
+    await store.signOut().catch(() => {});
+    expect(store.currentToken()).toBeNull();
+    expect(items.has('driveToken')).toBe(false);
+  });
+});
