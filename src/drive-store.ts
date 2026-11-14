@@ -1,7 +1,7 @@
 // Google Drive as the data folder: the same CSV files, kept in a "BanBan Weight Tracker" folder in the user's
 // own Drive as Google Sheets, so the user can edit them right in Drive. Works in any browser, phones included.
 // Everything runs in the page: Google Identity Services signs the user in and hands out a short-lived access
-// token (kept in memory only), and the Drive REST API is called with fetch.
+// token (kept for this tab only), and the Drive REST API is called with fetch.
 // The drive.file permission only lets the app see files it created.
 
 import { del, get, set } from 'idb-keyval';
@@ -92,7 +92,35 @@ export function preloadGoogle(): void {
   if (CLIENT_ID) loadGis().catch(() => {});
 }
 
-let token: { value: string; expires: number } | null = null;
+const TOKEN_KEY = 'driveToken';
+
+/**
+ * The access token is kept in this tab's sessionStorage, so reloading the page stays signed in until it
+ * expires (about an hour). It's gone when the tab closes, and never stored anywhere else.
+ */
+let token: { value: string; expires: number } | null = restoreToken();
+
+function restoreToken(): { value: string; expires: number } | null {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(TOKEN_KEY) ?? 'null') as { value?: unknown; expires?: unknown } | null;
+    if (saved && typeof saved.value === 'string' && typeof saved.expires === 'number' && saved.expires > Date.now()) {
+      return { value: saved.value, expires: saved.expires };
+    }
+  } catch {
+    // No storage (private mode, tests): sign in as usual.
+  }
+  return null;
+}
+
+function setToken(next: { value: string; expires: number } | null): void {
+  token = next;
+  try {
+    if (next) sessionStorage.setItem(TOKEN_KEY, JSON.stringify(next));
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Kept in memory only.
+  }
+}
 
 /** The current access token, if it has more than a minute left. */
 export const currentToken = () => (token && token.expires - Date.now() > 60_000 ? token.value : null);
@@ -110,7 +138,7 @@ export async function signIn(hint?: string): Promise<string> {
       scope: SCOPE,
       callback: (response) => {
         if (!response.access_token) return reject(new DriveAuthError(response.error ?? 'Google sign-in failed'));
-        token = { value: response.access_token, expires: Date.now() + (response.expires_in ?? 3600) * 1000 };
+        setToken({ value: response.access_token, expires: Date.now() + (response.expires_in ?? 3600) * 1000 });
         resolve(response.access_token);
       },
       error_callback: (error) => reject(new DriveAuthError(error.type === 'popup_closed' ? 'Google sign-in was closed' : 'Google sign-in failed')),
@@ -122,7 +150,7 @@ export async function signIn(hint?: string): Promise<string> {
 /** Signs out: revokes the token and forgets the Drive folder. Files in Drive are left as they are. */
 export async function signOut(): Promise<void> {
   const value = token?.value;
-  token = null;
+  setToken(null);
   await forgetDrive();
   if (value && window.google?.accounts) window.google.accounts.oauth2.revoke(value);
 }
@@ -136,7 +164,7 @@ async function driveFetch(getToken: GetToken, url: string, init: RequestInit = {
   const res = await fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${await getToken()}` } });
   if (res.status === 401) {
     if (retried) throw new DriveAuthError();
-    token = null;
+    setToken(null);
     return driveFetch(getToken, url, init, true);
   }
   return res;

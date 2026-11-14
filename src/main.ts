@@ -918,7 +918,7 @@ void requestPersistentStorage();
 async function start(): Promise<void> {
   const session = currentSession();
   if (session?.kind === 'google' && driveConfigured()) {
-    // Back to the Google login's Drive; the gate asks to sign in to Google again (it needs a click).
+    // Back to the Google login's Drive: still signed in within the hour, otherwise the gate asks (it needs a click).
     await resumeGoogle();
     const summary = (await listProfiles()).find((p) => p.googleEmail && p.name === session.name);
     if (summary) return selectProfile(summary.userId);
