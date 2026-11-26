@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#af5a3f" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <title>BanBan Weight Tracker</title>
-    <meta name="description" content="BanBan Weight Tracker: a free, private tracker for your weight, food and exercise. Your data is saved in your own Google Drive or on your own computer, never on our servers." />
+    <meta name="description" content="BanBan Weight Tracker: a free, private tracker for your weight. Your data is saved in your own Google Drive or on your own computer, never on our servers." />
     <script>
       // Apply the saved color theme before the page paints, so it doesn't flash the default first.
       try {
@@ -115,7 +115,7 @@
               <span id="unit-label" class="unit"></span>
               <button type="submit">Log weight</button>
             </div>
-            <p class="muted small">The date and time are recorded automatically from this device.</p>
+            <p class="muted small">Saved for today's date. Each day keeps one weight.</p>
           </form>
         </section>
 
@@ -136,47 +136,31 @@
         <section class="card plot-card" id="charts-card">
           <div class="plot-header">
             <h2>Weight trend</h2>
-            <div class="range-row">
-              <label>From <input type="date" id="range-start" /></label>
-              <label>To <input type="date" id="range-end" /></label>
+            <div class="button-row presets" role="group" aria-label="Chart period, up to your last weigh-in">
+              <button type="button" class="chip" data-range="90" aria-pressed="true">Past 90 days</button>
+              <button type="button" class="chip" data-range="all" aria-pressed="false">All time</button>
             </div>
           </div>
-          <div class="plot-controls">
-            <div class="button-row presets" role="group" aria-label="Quick date ranges">
-              <button type="button" class="chip" data-range-days="10">10 days</button>
-              <button type="button" class="chip" data-range-days="30">30 days</button>
-              <button type="button" class="chip" data-range-days="90">90 days</button>
-              <button type="button" class="chip" data-range-days="all">All time</button>
-            </div>
+          <div class="tabs chart-tabs" role="tablist" aria-label="Chart">
+            <button type="button" role="tab" id="chart-tab-weight" data-view="weight" aria-controls="chart-figure" aria-selected="true">Weight</button>
+            <button type="button" role="tab" id="chart-tab-slope" data-view="slope" aria-controls="chart-figure" aria-selected="false" tabindex="-1">Slope</button>
           </div>
-          <figure class="chart" id="chart-figure">
-            <div class="chart-head">
-              <figcaption id="chart-title"></figcaption>
-              <p class="trend-summary" id="trend-summary" aria-live="polite"></p>
-            </div>
-            <div class="chart-legend">
-              <span><i class="chart-swatch series-weight"></i>Weight (each entry)</span>
+          <figure class="chart" id="chart-figure" role="tabpanel" aria-labelledby="chart-tab-weight">
+            <div class="chart-legend" id="weight-legend">
+              <span><i class="chart-swatch series-weight"></i>Daily</span>
               <span><i class="chart-swatch series-average"></i>10-day average</span>
-              <span><i class="chart-swatch series-trend"></i>Trend</span>
+            </div>
+            <div class="chart-legend" id="slope-legend" hidden>
+              <span><i class="chart-swatch series-slope"></i>30-day pace</span>
             </div>
             <div class="chart-host" id="chart-host"></div>
-            <details class="chart-data">
-              <summary id="chart-table-summary">Show data table</summary>
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Date</th>
-                    <th scope="col" id="chart-table-value">Weight</th>
-                    <th scope="col" id="chart-table-average">10-day avg</th>
-                  </tr>
-                </thead>
-                <tbody id="chart-table-body"></tbody>
-              </table>
-              <div class="override-panel" id="override-card">
-                <h3>Correct a weight</h3>
+          </figure>
+          <details class="override-details">
+            <summary>Correct a weight</summary>
+            <div class="override-panel" id="override-card">
                 <p class="muted small">
-                  Replace the weight for one date, e.g. to fix a typo or fill in a missed day. All entries on that date
-                  become one entry with the new weight. You'll be asked to confirm before anything is saved.
+                  Replace the weight for one date, e.g. to fix a typo or fill in a missed day. Each date keeps one
+                  weight. You'll be asked to confirm before anything is saved.
                 </p>
                 <form id="override-form" class="override-form">
                   <label>Date <input type="date" id="override-date" required /></label>
@@ -189,152 +173,10 @@
                   <button type="submit">Save correction…</button>
                 </form>
                 <p class="small override-current" id="override-current"></p>
-              </div>
-            </details>
-          </figure>
+            </div>
+          </details>
         </section>
 
-
-        <div class="food-exercise" id="food-exercise">
-          <p class="card lock-note" id="lock-note" role="status" hidden></p>
-          <div class="lockable" id="food-exercise-cards">
-            <section class="card input-card">
-              <h2>Food log</h2>
-              <form id="food-form" class="food-form">
-                <label class="visually-hidden" for="food-input">What did you eat?</label>
-                <input
-                  id="food-input"
-                  type="text"
-                  maxlength="200"
-                  required
-                  autocomplete="off"
-                  placeholder="What did you eat? e.g. oatmeal with berries"
-                />
-                <label class="visually-hidden" for="food-category">Category</label>
-                <select id="food-category" required>
-                  <option value="" disabled selected>Category</option>
-                  <option value="protein">Protein</option>
-                  <option value="produce">Vegetables &amp; fruit</option>
-                  <option value="grains">Grains &amp; starches</option>
-                  <option value="dairy">Dairy</option>
-                  <option value="snacks">Snacks &amp; sweets</option>
-                  <option value="drinks">Drinks</option>
-                </select>
-                <button type="submit">Log food</button>
-              </form>
-              <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
-              <p class="muted small" id="food-empty">Nothing logged today yet.</p>
-              <div class="food-list" id="food-list"></div>
-            </section>
-
-            <section class="card plot-card" id="food-viz-card">
-              <div class="plot-header">
-                <h2>Food breakdown</h2>
-                <div class="range-row">
-                  <label>From <input type="date" id="food-range-start" /></label>
-                  <label>To <input type="date" id="food-range-end" /></label>
-                </div>
-              </div>
-              <div class="plot-controls">
-                <div class="button-row presets" role="group" aria-label="Quick date ranges for the food chart">
-                  <button type="button" class="chip" data-food-range="7">7 days</button>
-                  <button type="button" class="chip" data-food-range="30">30 days</button>
-                  <button type="button" class="chip" data-food-range="90">90 days</button>
-                  <button type="button" class="chip" data-food-range="all">All time</button>
-                </div>
-                <p class="muted small pie-detail" id="food-pie-detail" aria-live="polite"></p>
-              </div>
-              <div class="food-pie" id="food-pie"></div>
-              <details class="chart-data food-data">
-                <summary id="food-table-summary">Show data table</summary>
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Date</th>
-                      <th scope="col">Food</th>
-                      <th scope="col">Category</th>
-                    </tr>
-                  </thead>
-                  <tbody id="food-table-body"></tbody>
-                </table>
-              </details>
-            </section>
-
-            <section class="card input-card">
-              <h2>Exercise log</h2>
-              <form id="exercise-form" class="food-form exercise-form">
-                <label class="visually-hidden" for="exercise-name">What did you do?</label>
-                <input
-                  id="exercise-name"
-                  type="text"
-                  maxlength="100"
-                  required
-                  autocomplete="off"
-                  placeholder="What did you do? e.g. morning run"
-                />
-                <label class="visually-hidden" for="exercise-category">Category</label>
-                <select id="exercise-category" required>
-                  <option value="" disabled selected>Category</option>
-                  <option value="cardio">Cardio</option>
-                  <option value="strength">Strength</option>
-                  <option value="flexibility">Flexibility</option>
-                </select>
-                <span class="exercise-minutes">
-                  <label class="visually-hidden" for="exercise-minutes">Duration in minutes</label>
-                  <input id="exercise-minutes" type="number" min="1" max="1440" step="1" inputmode="numeric" required placeholder="30" />
-                  <span class="unit">min</span>
-                </span>
-                <button type="submit">Log exercise</button>
-              </form>
-              <p class="muted small food-hint">The time is recorded automatically. Press Enter to save.</p>
-              <p class="muted small" id="exercise-empty">No exercise logged today yet.</p>
-              <div class="food-list" id="exercise-list"></div>
-            </section>
-
-            <section class="card plot-card" id="exercise-card">
-              <div class="plot-header">
-                <h2>Exercise</h2>
-                <div class="range-row">
-                  <label>From <input type="date" id="exercise-range-start" /></label>
-                  <label>To <input type="date" id="exercise-range-end" /></label>
-                </div>
-              </div>
-              <div class="plot-controls">
-                <div class="button-row presets" role="group" aria-label="Quick date ranges for the exercise charts">
-                  <button type="button" class="chip" data-exercise-range="7">7 days</button>
-                  <button type="button" class="chip" data-exercise-range="30">30 days</button>
-                  <button type="button" class="chip" data-exercise-range="90">90 days</button>
-                  <button type="button" class="chip" data-exercise-range="all">All time</button>
-                </div>
-              </div>
-              <div class="tabs" role="tablist" aria-label="Exercise views" id="exercise-tabs">
-                <button type="button" role="tab" id="ex-tab-summary" data-tab="summary" aria-controls="exercise-panel" aria-selected="true">Summary</button>
-                <button type="button" role="tab" id="ex-tab-cardio" data-tab="cardio" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-cardio"></i>Cardio</button>
-                <button type="button" role="tab" id="ex-tab-strength" data-tab="strength" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-strength"></i>Strength</button>
-                <button type="button" role="tab" id="ex-tab-flexibility" data-tab="flexibility" aria-controls="exercise-panel" aria-selected="false" tabindex="-1"><i class="tab-dot ex-flexibility"></i>Flexibility</button>
-              </div>
-              <div class="tab-panel" role="tabpanel" id="exercise-panel" aria-labelledby="ex-tab-summary">
-                <p class="muted small exercise-caption" id="exercise-caption" aria-live="polite"></p>
-                <div class="exercise-summary" id="exercise-summary"></div>
-                <div class="chart-host" id="exercise-chart" hidden></div>
-              </div>
-              <details class="chart-data exercise-data">
-                <summary id="exercise-table-summary">Show data table</summary>
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Date</th>
-                      <th scope="col">Activity</th>
-                      <th scope="col">Category</th>
-                      <th scope="col" class="num">Minutes</th>
-                    </tr>
-                  </thead>
-                  <tbody id="exercise-table-body"></tbody>
-                </table>
-              </details>
-            </section>
-          </div>
-        </div>
 
         <section class="quiet-section">
           <h2>Data &amp; backup</h2>
@@ -347,11 +189,11 @@
             <button type="button" class="secondary" id="sign-out-drive-btn">Sign out of Google Drive</button>
           </div>
           <p>
-            Export downloads your weight, food and exercise data as one .zip of CSV files, as a backup. To add or fix
-            entries in bulk, edit the files in your data folder directly.
+            Export downloads your weight data as a CSV file, as a backup. To add or fix entries in bulk, edit the
+            file in your data folder directly.
           </p>
           <div class="button-row">
-            <button type="button" class="secondary" id="export-btn">Export data (.zip)</button>
+            <button type="button" class="secondary" id="export-btn">Export data (.csv)</button>
             <button type="button" class="secondary" id="edit-data-btn">Edit data…</button>
           </div>
         </section>

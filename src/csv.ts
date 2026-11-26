@@ -1,14 +1,23 @@
-import type { ExerciseEntry, FoodEntry, UserData, WeightEntry, WeightUnit } from './types.ts';
-import { exerciseCategoryFromText, exerciseCategoryLabel, validMinutes } from './exercise.ts';
-import { categoryFromText, categoryLabel } from './food.ts';
-import { convertWeight } from './units.ts';
+import type { UserData, WeightEntry, WeightUnit } from './types.ts';
+import { dayKey } from './stats.ts';
+import { convertExact, mergeSameDay, round2 } from './units.ts';
 
 export type CsvRow = Omit<WeightEntry, 'id'>;
 
 export interface CsvParseResult {
+  /** One entry per date, oldest first, in the unit asked for, rounded to 0.01. */
   entries: CsvRow[];
   /** 1-based line numbers of rows that could not be read. */
   skipped: number[];
+  /** Dates that had more than one row; their weights were averaged into one entry. */
+  merged: string[];
+  /** The file's own unit: from a "weight_kg" / "weight_lb" header, else the first row's unit; null if unknown. */
+  fileUnit: WeightUnit | null;
+  /**
+   * True when the text isn't already exactly what toWeightCsv would write for these entries in this unit:
+   * an older format, another unit, duplicate dates, or more than 2 decimals. The file should be rewritten.
+   */
+  needsCleanup: boolean;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -56,81 +65,84 @@ export function parseNumber(value: string): number {
 const UNITS: WeightUnit[] = ['kg', 'lb'];
 const asUnit = (v: string | undefined): WeightUnit | null => (v === 'kg' || v === 'lb' ? v : null);
 
+/** The weight file's header for a profile in `unit`. */
+export const weightHeader = (unit: WeightUnit) => `date,weight_${unit}`;
+
 /**
- * Parses weight CSV in either format:
- *   current: timestamp,weight_kg,weight_lb,entered_unit   (either weight column may be blank)
- *   older:   timestamp,weight[,unit]                       (unit defaults to `defaultUnit`)
- * Each row becomes an entry with both units. Throws if the header is missing; skips (and reports) bad rows.
+ * Parses weight CSV into one entry per date with weights in `unit`, rounded to 0.01. Reads:
+ *   current: date,weight_kg   or   date,weight_lb
+ *   older:   timestamp,weight_kg,weight_lb,entered_unit   (either weight column may be blank)
+ *   oldest:  timestamp,weight[,unit]                       (unit defaults to `unit`)
+ * Times of day are dropped. Weights in the other unit are converted. Rows on the same date are averaged.
+ * Throws if the header is missing; skips (and reports) bad rows.
  */
-export function parseWeightCsv(text: string, defaultUnit: WeightUnit): CsvParseResult {
+export function parseWeightCsv(text: string, unit: WeightUnit): CsvParseResult {
   const lines = parseCsvRows(text);
   const header = lines[0]?.map((h) => h.trim().toLowerCase()) ?? [];
   const col = {
-    timestamp: header.indexOf('timestamp'),
+    date: header.includes('date') ? header.indexOf('date') : header.indexOf('timestamp'),
     kg: header.indexOf('weight_kg'),
     lb: header.indexOf('weight_lb'),
     entered: header.indexOf('entered_unit'),
     weight: header.indexOf('weight'),
     unit: header.indexOf('unit'),
   };
-  if (col.timestamp < 0 || (col.weight < 0 && col.kg < 0 && col.lb < 0)) {
-    throw new Error('The CSV needs a header row with "timestamp" and "weight" (or "weight_kg" / "weight_lb") columns.');
+  if (col.date < 0 || (col.weight < 0 && col.kg < 0 && col.lb < 0)) {
+    throw new Error('The CSV needs a header row with "date" and "weight_kg" or "weight_lb" columns.');
   }
+  const current = header.length === 2 && header[0] === 'date' && asUnit(header[1].replace(/^weight_/, '')) !== null;
+  let fileUnit: WeightUnit | null = current ? (header[1] === 'weight_lb' ? 'lb' : 'kg') : null;
+  let unrounded = false;
 
-  const entries: CsvRow[] = [];
+  const rows: CsvRow[] = [];
   const skipped: number[] = [];
   for (let i = 1; i < lines.length; i++) {
     if (lines[i].every((c) => !c.trim())) continue;
     const cells = lines[i].map((c) => c.trim());
     const cell = (index: number) => (index >= 0 ? cells[index] ?? '' : '');
-    const timestamp = parseTimestamp(cell(col.timestamp));
+    const timestamp = parseTimestamp(cell(col.date));
     const value: Partial<Record<WeightUnit, number>> = {};
-    let entered: WeightUnit | null;
+    let rowUnit: WeightUnit | null;
 
     if (col.kg >= 0 || col.lb >= 0) {
       for (const u of UNITS) {
         const n = parseNumber(cell(col[u]));
         if (cell(col[u]) !== '' && Number.isFinite(n) && n > 0) value[u] = n;
       }
-      entered = asUnit(cell(col.entered).toLowerCase()) ?? (value.kg !== undefined ? 'kg' : value.lb !== undefined ? 'lb' : null);
+      rowUnit = asUnit(cell(col.entered).toLowerCase()) ?? (value.kg !== undefined ? 'kg' : value.lb !== undefined ? 'lb' : null);
     } else {
       const unitCell = cell(col.unit).toLowerCase();
-      entered = unitCell === '' ? defaultUnit : asUnit(unitCell);
+      rowUnit = unitCell === '' ? unit : asUnit(unitCell);
       const n = parseNumber(cell(col.weight));
-      if (entered && cell(col.weight) !== '' && Number.isFinite(n) && n > 0) value[entered] = n;
+      if (rowUnit && cell(col.weight) !== '' && Number.isFinite(n) && n > 0) value[rowUnit] = n;
     }
 
-    const base = entered !== null ? value[entered] : undefined;
-    if (timestamp === null || entered === null || base === undefined) {
+    // The column in the wanted unit if the row has it, else the other one converted.
+    const from: WeightUnit | null = value[unit] !== undefined ? unit : rowUnit !== null && value[rowUnit] !== undefined ? rowUnit : null;
+    if (timestamp === null || from === null) {
       skipped.push(i + 1);
       continue;
     }
-    const other: WeightUnit = entered === 'kg' ? 'lb' : 'kg';
-    const both = { [entered]: base, [other]: value[other] ?? convertWeight(base, entered, other) } as Record<WeightUnit, number>;
-    entries.push({ timestamp, kg: both.kg, lb: both.lb, entered });
+    fileUnit ??= rowUnit;
+    const weight = from === unit ? value[unit]! : convertExact(value[from]!, from, unit);
+    if (weight !== round2(weight)) unrounded = true;
+    rows.push({ date: dayKey(timestamp), weight });
   }
-  return { entries, skipped };
+
+  const { entries, merged } = mergeSameDay(rows.map((r, i) => ({ id: String(i), ...r })));
+  const needsCleanup = !current || fileUnit !== unit || merged.length > 0 || unrounded;
+  return { entries: entries.map(({ id: _id, ...e }) => e), skipped, merged, fileUnit, needsCleanup };
 }
 
-/** All of a user's weigh-ins as CSV with both units, oldest first, in the format `parseWeightCsv` reads. */
-export function toWeightCsv(user: UserData): string {
-  const rows = [...user.entries]
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .map((e) => `${localIso(e.timestamp)},${e.kg},${e.lb},${e.entered}`);
-  return ['timestamp,weight_kg,weight_lb,entered_unit', ...rows].join('\n') + '\n';
+/** A user's weigh-ins as "date,weight_<unit>" CSV, one row per date, oldest first, up to 2 decimals. */
+export function toWeightCsv(user: Pick<UserData, 'unit' | 'entries'>): string {
+  const rows = mergeSameDay(user.entries).entries.map((e) => `${e.date},${e.weight}`);
+  return [weightHeader(user.unit), ...rows].join('\n') + '\n';
 }
 
 /** Quotes a CSV field when it contains a comma, quote, or line break. */
 export function csvField(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-/** A user's food log as "timestamp,food,category" CSV, oldest first. Uncategorized entries leave the category blank. */
-export function toFoodCsv(user: UserData): string {
-  const rows = [...(user.foods ?? [])]
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .map((f) => `${localIso(f.timestamp)},${csvField(f.text)},${f.category ? csvField(categoryLabel(f.category)) : ''}`);
-  return ['timestamp,food,category', ...rows].join('\n') + '\n';
 }
 
 /** Splits CSV text into rows of fields, honouring quoted fields (with commas, "" escapes, and line breaks). */
@@ -165,59 +177,4 @@ export function parseCsvRows(text: string): string[][] {
     rows.push(row);
   }
   return rows;
-}
-
-export type FoodRow = Omit<FoodEntry, 'id'>;
-
-/**
- * Reads food CSV as written by `toFoodCsv`. The category column is optional (older files have
- * just "timestamp,food"); unknown or blank categories become uncategorized. Unreadable rows are skipped.
- */
-export function parseFoodCsv(text: string): FoodRow[] {
-  const [header = [], ...rows] = parseCsvRows(text);
-  const names = header.map((h) => h.trim().toLowerCase());
-  const col = { timestamp: names.indexOf('timestamp'), food: names.indexOf('food'), category: names.indexOf('category') };
-  if (col.timestamp < 0 || col.food < 0) throw new Error('The CSV needs a header row with "timestamp" and "food" columns.');
-  const foods: FoodRow[] = [];
-  for (const cells of rows) {
-    const timestamp = parseTimestamp((cells[col.timestamp] ?? '').trim());
-    const text = cells[col.food] ?? '';
-    const category = col.category >= 0 ? categoryFromText(cells[col.category]) : null;
-    if (timestamp !== null && text.trim()) foods.push({ timestamp, text, ...(category ? { category } : {}) });
-  }
-  return foods;
-}
-
-/** A user's exercise log as "timestamp,activity,category,minutes" CSV, oldest first. */
-export function toExerciseCsv(user: UserData): string {
-  const rows = [...(user.exercises ?? [])]
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .map((e) => `${localIso(e.timestamp)},${csvField(e.name)},${exerciseCategoryLabel(e.category)},${e.minutes}`);
-  return ['timestamp,activity,category,minutes', ...rows].join('\n') + '\n';
-}
-
-export type ExerciseRow = Omit<ExerciseEntry, 'id'>;
-
-/** Reads exercise CSV as written by `toExerciseCsv`. Rows without a known category or a valid duration are skipped. */
-export function parseExerciseCsv(text: string): ExerciseRow[] {
-  const [header = [], ...rows] = parseCsvRows(text);
-  const names = header.map((h) => h.trim().toLowerCase());
-  const col = {
-    timestamp: names.indexOf('timestamp'),
-    activity: names.indexOf('activity'),
-    category: names.indexOf('category'),
-    minutes: names.indexOf('minutes'),
-  };
-  if (Object.values(col).some((i) => i < 0)) {
-    throw new Error('The CSV needs a header row with "timestamp", "activity", "category" and "minutes" columns.');
-  }
-  const exercises: ExerciseRow[] = [];
-  for (const cells of rows) {
-    const timestamp = parseTimestamp((cells[col.timestamp] ?? '').trim());
-    const name = (cells[col.activity] ?? '').trim();
-    const category = exerciseCategoryFromText(cells[col.category]);
-    const minutes = parseNumber(cells[col.minutes] ?? '');
-    if (timestamp !== null && name && category && validMinutes(minutes)) exercises.push({ timestamp, name, category, minutes });
-  }
-  return exercises;
 }

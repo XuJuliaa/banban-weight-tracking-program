@@ -1,19 +1,15 @@
-import type { ExerciseCategoryId } from './exercise.ts';
-import type { FoodCategoryId } from './food.ts';
-
 export type WeightUnit = 'kg' | 'lb';
 
 /**
- * One weigh-in, stored in both units. The unit it was entered in holds the exact value typed;
- * the other is converted from it and rounded to 0.01.
+ * The weight for one calendar date. A profile has at most one entry per date, and every weight is in
+ * the profile's unit (UserData.unit). Switching the unit converts all entries.
  */
 export interface WeightEntry {
   id: string;
-  /** Epoch milliseconds, taken from the device clock when the entry was saved. */
-  timestamp: number;
-  kg: number;
-  lb: number;
-  entered: WeightUnit;
+  /** Local calendar date, "YYYY-MM-DD". No time of day is kept. */
+  date: string;
+  /** In the profile's unit. Typed weights are rounded to 0.1; converted or averaged ones keep up to 2 decimals. */
+  weight: number;
 }
 
 /** A weight in one chosen unit, as the stats and charts use it. */
@@ -23,38 +19,14 @@ export interface WeightPoint {
   weight: number;
 }
 
-export interface FoodEntry {
-  id: string;
-  /** Epoch milliseconds, taken from the device clock when the entry was saved. */
-  timestamp: number;
-  text: string;
-  /** Missing for entries logged before categories existed ("Uncategorized"). */
-  category?: FoodCategoryId;
-}
-
-export interface ExerciseEntry {
-  id: string;
-  /** Epoch milliseconds, taken from the device clock when the entry was saved. */
-  timestamp: number;
-  /** What the user did, e.g. "Morning run". */
-  name: string;
-  category: ExerciseCategoryId;
-  /** Duration in minutes. */
-  minutes: number;
-}
-
 /** Everything stored for one user. Saved as a single IndexedDB record. */
 export interface UserData {
   version: 1;
   userId: string;
   name: string;
-  /** Unit the page shows weights in (and new weights are typed in). Switching it doesn't change stored data. */
+  /** The unit every weight is stored, shown and typed in. Switching it converts all entries. */
   unit: WeightUnit;
   entries: WeightEntry[];
-  /** Food log. Missing in data saved before food logging existed. */
-  foods?: FoodEntry[];
-  /** Exercise log. Missing in data saved before exercise logging existed. */
-  exercises?: ExerciseEntry[];
   /** Epoch ms of the last save in this browser. */
   updatedAt?: number;
   /** Set for a profile opened with "Continue with Google": the account's email. Its data is saved in that Drive. */
@@ -77,6 +49,4 @@ export interface FileProfile {
 
 export interface FileProfileData extends FileProfile {
   entries: WeightEntry[];
-  foods: FoodEntry[];
-  exercises: ExerciseEntry[];
 }

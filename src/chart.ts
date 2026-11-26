@@ -3,7 +3,6 @@ import { dayKey, type SeriesPoint } from './stats';
 export const SVG_NS = 'http://www.w3.org/2000/svg';
 export const HEIGHT = 260;
 export const MARGIN = { top: 12, right: 16, bottom: 28, left: 44 };
-const DAY_MS = 86_400_000;
 
 export interface ChartSeries {
   label: string;
@@ -20,6 +19,12 @@ export interface ChartOptions {
   unit: string;
   /** Tooltip heading for the hovered x value. */
   formatX: (x: number, series: ChartSeries) => string;
+  /** Tooltip value for a y value; defaults to one decimal and the unit, e.g. "70.4 kg". */
+  formatY?: (y: number) => string;
+  /** Keep 0 on the y axis and draw a line there, for values that can be positive or negative. */
+  zeroLine?: boolean;
+  /** Shown instead of the chart when no series has a value. */
+  emptyText?: string;
 }
 
 type Pt = { x: number; y: number };
@@ -45,21 +50,30 @@ export function niceTicks(min: number, max: number, count = 5): number[] {
   return ticks;
 }
 
-/** Midnight ticks spaced so the labels fit. */
-export function dateTicks(from: number, to: number, width: number): number[] {
-  const maxTicks = Math.max(2, Math.floor(width / 80));
-  const spanDays = Math.max(1, (to - from) / DAY_MS);
-  const stepDays = [1, 2, 7, 14, 30, 61, 91, 182, 365].find((s) => spanDays / s <= maxTicks) ?? 365;
-  const ticks: number[] = [];
+/**
+ * Ticks on the first of each month between `from` and `to`, every 1, 2, 3, 6 or 12 months so the labels fit
+ * in `width` pixels. A range inside one month (no 1st in it) gets a single tick at its start.
+ */
+export function monthTicks(from: number, to: number, width: number): number[] {
+  const maxTicks = Math.max(2, Math.floor(width / 60));
+  const firsts: number[] = [];
   const d = new Date(from);
   d.setHours(0, 0, 0, 0);
-  if (d.getTime() < from) d.setDate(d.getDate() + 1);
+  if (d.getTime() < from || d.getDate() !== 1) d.setMonth(d.getMonth() + 1, 1);
   while (d.getTime() <= to) {
-    ticks.push(d.getTime());
-    d.setDate(d.getDate() + stepDays);
+    firsts.push(d.getTime());
+    d.setMonth(d.getMonth() + 1, 1);
   }
-  return ticks;
+  if (firsts.length === 0) return [from];
+  const step = [1, 2, 3, 6, 12].find((s) => Math.ceil(firsts.length / s) <= maxTicks) ?? 12;
+  // Keep months that fall on the step (Jan, Apr, Jul, Oct for 3), so the labels stay evenly spaced.
+  return firsts.filter((t) => new Date(t).getMonth() % step === 0 || step === 1);
 }
+
+const monthName = new Intl.DateTimeFormat(undefined, { month: 'short' });
+
+/** An axis label like "Jan'26" for January 2026. */
+export const monthLabel = (t: number) => `${monthName.format(t)}'${String(new Date(t).getFullYear()).slice(-2)}`;
 
 /** Splits a series into runs of consecutive non-null points (a null breaks the line). */
 function segments(points: SeriesPoint[]): Pt[][] {
@@ -105,8 +119,6 @@ export function monotonePath(pts: Pt[]): string {
   return d;
 }
 
-export const tickDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
-
 /**
  * Renders a multi-series line chart into `host`, sharing one y axis, with a hover crosshair and a
  * tooltip listing every series' value on the hovered day. `from`/`to` set the x range.
@@ -118,7 +130,7 @@ export function renderLineChart(host: HTMLElement, series: ChartSeries[], from: 
   if (all.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'muted chart-empty';
-    empty.textContent = 'No data in this date range.';
+    empty.textContent = opts.emptyText ?? 'No data in this date range.';
     host.append(empty);
     return;
   }
@@ -128,6 +140,7 @@ export function renderLineChart(host: HTMLElement, series: ChartSeries[], from: 
   const plotH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
   const ys = all.map((p) => p.y);
+  if (opts.zeroLine) ys.push(0);
   const yTicks = niceTicks(Math.min(...ys), Math.max(...ys));
   const yMin = yTicks[0];
   const yMax = yTicks[yTicks.length - 1];
@@ -145,13 +158,14 @@ export function renderLineChart(host: HTMLElement, series: ChartSeries[], from: 
     root.append(label);
   }
   root.append(svg('line', { x1: MARGIN.left, x2: width - MARGIN.right, y1: MARGIN.top + plotH, y2: MARGIN.top + plotH, class: 'chart-axis' }));
+  if (opts.zeroLine) root.append(svg('line', { x1: MARGIN.left, x2: width - MARGIN.right, y1: sy(0), y2: sy(0), class: 'chart-zero' }));
 
-  for (const t of dateTicks(from, to, plotW)) {
+  for (const t of monthTicks(from, to, plotW)) {
     // Anchor labels near either edge inward so they are not clipped.
     const x = sx(t);
     const anchor = x < MARGIN.left + 24 ? 'start' : x > width - MARGIN.right - 24 ? 'end' : 'middle';
     const label = svg('text', { x, y: HEIGHT - 8, class: 'chart-tick', 'text-anchor': anchor });
-    label.textContent = tickDate.format(t);
+    label.textContent = monthLabel(t);
     root.append(label);
   }
 
@@ -223,7 +237,7 @@ export function renderLineChart(host: HTMLElement, series: ChartSeries[], from: 
       const label = document.createElement('span');
       label.textContent = s.label;
       const value = document.createElement('strong');
-      value.textContent = `${match.y.toFixed(1)} ${opts.unit}`;
+      value.textContent = opts.formatY ? opts.formatY(match.y) : `${match.y.toFixed(1)} ${opts.unit}`;
       row.append(swatch, label, value);
       tooltip.append(row);
     });

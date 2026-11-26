@@ -221,11 +221,11 @@ export interface FileLocations {
   store: 'service' | 'folder' | 'drive';
   /** The data folder: an absolute path, a picked folder's name, or "Google Drive › BanBan Weight Tracker". */
   folder: string;
-  /** Weight, food and exercise, in that order. `url` opens a Google Sheet; `path` is the full path when known. */
+  /** The weight file. `url` opens a Google Sheet; `path` is the full path when known. */
   files: { name: string; path?: string; url?: string }[];
 }
 
-/** Where `name`'s weight, food and exercise files are, or null when there's no data folder to edit. */
+/** Where `name`'s weight file is, or null when there's no data folder to edit. */
 export async function fileLocations(name: string): Promise<FileLocations | null> {
   const slug = profileSlug(name);
   const names = files.profileFiles(slug);

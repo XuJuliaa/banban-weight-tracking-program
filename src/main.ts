@@ -11,8 +11,7 @@ import {
   loadUserFromFiles,
   setSyncErrorHandler,
 } from './storage';
-import { toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
-import { zipFiles } from './backup';
+import { toWeightCsv } from './csv';
 import {
   chooseFolder,
   closeAccount,
@@ -37,34 +36,31 @@ import { profileSlug } from './names';
 import { folderSupported } from './folder-store';
 import { driveConfigured, preloadGoogle } from './drive-store';
 import { isMobileDevice } from './device';
-import type { UserData, WeightEntry, WeightUnit } from './types';
-import { dayKey, startOfDay } from './stats';
+import type { UserData, WeightUnit } from './types';
+import { type ChartRange, chartPeriod, dayKey } from './stats';
 import { overrideDay } from './edits';
 import { initThemePicker } from './theme';
-import { makeEntry } from './units';
+import { convertEntries } from './units';
 import {
   confirmChange,
   dom,
   formatEntry,
   renderChart,
+  renderSlopeChart,
+  selectChartView,
+  type ChartView,
   renderAccount,
   renderFolder,
   renderGate,
   renderLogin,
   renderOverride,
-  renderExerciseBreakdown,
-  renderFoodBreakdown,
   renderSignupFolder,
   renderUser,
   showFormError,
   showDataFiles,
   showToast,
   type LoginMode,
-  EXERCISE_TABS,
-  type ExerciseTab,
 } from './ui';
-import { categoryFromText, categoryLabel } from './food';
-import { exerciseCategoryFromText, exerciseCategoryLabel, validMinutes } from './exercise';
 
 /** The logged-in profile; null on the login page. */
 let current: UserData | null = null;
@@ -77,42 +73,22 @@ function readDateInput(input: HTMLInputElement): number | null {
   return y && m && d ? new Date(y, m - 1, d).getTime() : null;
 }
 
-function daysAgo(days: number): number {
-  const d = new Date(startOfDay(Date.now()));
-  d.setDate(d.getDate() - days);
-  return d.getTime();
-}
-
-function firstEntryDay(): number {
-  const first = Math.min(...(current?.entries.map((e) => e.timestamp) ?? []));
-  return Number.isFinite(first) ? startOfDay(first) : startOfDay(Date.now());
-}
-
-function setRange(start: number, end: number): void {
-  dom.rangeStart.value = dayKey(start);
-  dom.rangeEnd.value = dayKey(end);
-}
-
-/** "30" / "90" sets the last N days ending today; "all" starts at the first entry. */
-function applyPreset(preset: string): void {
-  const start = preset === 'all' ? firstEntryDay() : daysAgo(Number(preset) - 1);
-  setRange(start, Date.now());
-  drawChart();
-}
+/** The weight chart's period: the past 90 days or all time, both ending on the last weigh-in. */
+let chartRange: ChartRange = '90';
+/** Which chart the card shows: Weight or Slope. Both use the same period. */
+let chartView: ChartView = 'weight';
 
 function drawChart(): void {
+  for (const btn of dom.rangeButtons) btn.setAttribute('aria-pressed', String(btn.dataset.range === chartRange));
   if (!current) return;
-  const start = readDateInput(dom.rangeStart);
-  const end = readDateInput(dom.rangeEnd);
-  if (start === null || end === null) {
-    showToast('Choose a start and end date');
-    return;
-  }
-  if (start > end) {
-    showToast('The start date must be on or before the end date');
-    return;
-  }
-  renderChart(current, start, end);
+  const { start, end } = chartPeriod(current.entries.map((e) => e.date), chartRange, Date.now());
+  (chartView === 'slope' ? renderSlopeChart : renderChart)(current, start, end);
+}
+
+function showChartView(view: ChartView, focus = false): void {
+  chartView = view;
+  selectChartView(view, focus);
+  drawChart();
 }
 
 function render(): void {
@@ -127,24 +103,21 @@ function render(): void {
   }
   if (current) renderOverride(current, readDateInput(dom.overrideDate));
   drawChart();
-  drawFoodBreakdown();
-  drawExercise();
 }
 
 async function selectProfile(userId: string | null): Promise<void> {
   current = userId ? ((await loadUser(userId)) ?? null) : null;
   // When running locally, the testdata/ files hold the latest data for this name.
   if (current) current = await loadUserFromFiles(current);
-  // The weight chart and the food pie both open on the last 30 days.
-  setRange(daysAgo(29), Date.now());
-  setFoodRange(daysAgo(29), Date.now());
-  // The exercise card opens on the past week.
-  setExerciseRange(daysAgo(6), Date.now());
+  // The weight chart opens on the past 90 days.
+  chartRange = '90';
+  chartView = 'weight';
+  selectChartView('weight');
   dom.overrideDate.value = dayKey(Date.now());
   render();
 }
 
-/** Reloads the open profile from the data folder, keeping the chosen date ranges. */
+/** Reloads the open profile from the data folder, keeping the chosen chart period. */
 async function reloadCurrent(): Promise<void> {
   if (current) current = await loadUserFromFiles(current);
   render();
@@ -157,14 +130,18 @@ let missingName: string | null = null;
 
 const usernameIn = (form: HTMLFormElement) => String(new FormData(form).get('username') ?? '').trim();
 
+/** A profile's weigh-ins and the unit they're stored in, for checking the login weight. */
+type KnownWeights = Pick<UserData, 'entries' | 'unit'>;
+
 /**
  * The weigh-ins of the profile with this name, or null if there isn't one: from testdata/ when running
  * locally; on a hosted site, from this browser's copy (the browser also remembers the profile's folder).
  */
-async function knownEntries(name: string, local: boolean): Promise<WeightEntry[] | null> {
-  if (local) return (await findProfileData(name))?.entries ?? null;
+async function knownEntries(name: string, local: boolean): Promise<KnownWeights | null> {
+  if (local) return (await findProfileData(name)) ?? null;
   const summary = await findProfileByName(name);
-  return summary ? ((await loadUser(summary.userId))?.entries ?? []) : null;
+  if (!summary) return null;
+  return (await loadUser(summary.userId)) ?? { entries: [], unit: 'kg' };
 }
 
 const LOGIN_UNIT_KEY = 'loginUnit';
@@ -191,9 +168,9 @@ function setLoginUnit(unit: WeightUnit): void {
 }
 
 /** The login weight must be in the profile's login range (see loginRange in accounts.ts). Shows the error if not. */
-function weightAccepted(entries: WeightEntry[]): boolean {
+function weightAccepted(known: KnownWeights): boolean {
   const weight = dom.loginWeight.valueAsNumber;
-  if (weightMatches(entries, weight, loginUnit)) return true;
+  if (weightMatches(known.entries, known.unit, weight, loginUnit)) return true;
   showFormError(
     dom.loginForm,
     Number.isFinite(weight)
@@ -318,7 +295,7 @@ dom.loginFindBtn.addEventListener('click', async () => {
       return;
     }
     showMissing(null, false);
-    if (!weightAccepted(data.entries)) return;
+    if (!weightAccepted(data)) return;
     dom.loginForm.reset();
     await enter(name, handle, true);
     showToast(`Welcome back, ${current?.name ?? name}`);
@@ -441,233 +418,26 @@ dom.entryForm.addEventListener('submit', async (event) => {
     showToast('Enter a weight greater than 0');
     return;
   }
-  // Saved in both units; the one typed (the selected unit) is kept exactly.
-  current.entries.push(makeEntry(crypto.randomUUID(), Date.now(), weight, current.unit));
+  // One weight per date: if today already has one, ask before overwriting it.
+  const unit = current.unit;
+  const result = overrideDay(current.entries, dayKey(Date.now()), weight, crypto.randomUUID());
+  if (result.replaced) {
+    const ok = await confirmChange({
+      title: 'Overwrite today\'s weight?',
+      message: `You already logged ${formatEntry(result.replaced.weight, unit)} today.`,
+      warning: `It will be replaced by ${formatEntry(result.entry.weight, unit)}. Each day keeps one weight.`,
+      confirmLabel: 'Overwrite',
+    });
+    if (!ok || !current) return;
+  }
+  current.entries = result.entries;
   await saveUser(current);
   dom.entryForm.reset();
   render();
-  showToast('Weight logged');
-});
-
-async function logFood(): Promise<void> {
-  if (!current) return;
-  const text = dom.foodInput.value.trim();
-  const category = categoryFromText(dom.foodCategory.value);
-  if (!text) {
-    showToast('Type what you ate first');
-    return;
-  }
-  if (!category) {
-    showToast('Choose a category');
-    return;
-  }
-  current.foods = [...(current.foods ?? []), { id: crypto.randomUUID(), timestamp: Date.now(), text, category }];
-  await saveUser(current);
-  // Keep the category selected for the next entry; only clear the text.
-  dom.foodInput.value = '';
-  dom.foodInput.focus();
-  render();
-  showToast('Food logged');
-}
-
-dom.foodForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  void logFood();
-});
-
-// --- Food breakdown pie: its own date range, separate from the weight chart's.
-
-function setFoodRange(start: number, end: number): void {
-  dom.foodRangeStart.value = dayKey(start);
-  dom.foodRangeEnd.value = dayKey(end);
-}
-
-function firstFoodDay(): number {
-  const first = Math.min(...(current?.foods ?? []).map((f) => f.timestamp));
-  return Number.isFinite(first) ? startOfDay(first) : startOfDay(Date.now());
-}
-
-function drawFoodBreakdown(): void {
-  if (!current) return;
-  const start = readDateInput(dom.foodRangeStart);
-  const end = readDateInput(dom.foodRangeEnd);
-  if (start === null || end === null) return;
-  if (start > end) {
-    showToast('The start date must be on or before the end date');
-    return;
-  }
-  renderFoodBreakdown(current, start, end);
-}
-
-dom.foodRangeStart.addEventListener('change', drawFoodBreakdown);
-dom.foodRangeEnd.addEventListener('change', drawFoodBreakdown);
-dom.foodVizCard.addEventListener('click', (event) => {
-  const preset = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-food-range]')?.dataset.foodRange;
-  if (!preset) return;
-  setFoodRange(preset === 'all' ? firstFoodDay() : daysAgo(Number(preset) - 1), Date.now());
-  drawFoodBreakdown();
-});
-
-// --- Exercise log and the Exercise card (Summary + one bar chart per category), with its own date range.
-
-async function logExercise(): Promise<void> {
-  if (!current) return;
-  const name = dom.exerciseName.value.trim();
-  const category = exerciseCategoryFromText(dom.exerciseCategory.value);
-  const minutes = dom.exerciseMinutes.valueAsNumber;
-  if (!name) {
-    showToast('Type what you did first');
-    return;
-  }
-  if (!category) {
-    showToast('Choose a category');
-    return;
-  }
-  if (!validMinutes(minutes)) {
-    showToast('Enter a duration between 1 and 1440 minutes');
-    return;
-  }
-  current.exercises = [...(current.exercises ?? []), { id: crypto.randomUUID(), timestamp: Date.now(), name, category, minutes }];
-  await saveUser(current);
-  // Keep the category selected for the next entry; clear the name and duration.
-  dom.exerciseName.value = '';
-  dom.exerciseMinutes.value = '';
-  dom.exerciseName.focus();
-  render();
-  showToast('Exercise logged');
-}
-
-dom.exerciseForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  void logExercise();
-});
-
-const EXERCISE_TAB_KEY = 'exerciseTab';
-
-function recalledExerciseTab(): ExerciseTab {
-  try {
-    const saved = localStorage.getItem(EXERCISE_TAB_KEY) as ExerciseTab | null;
-    return saved && EXERCISE_TABS.includes(saved) ? saved : 'summary';
-  } catch {
-    return 'summary';
-  }
-}
-
-let exerciseTab: ExerciseTab = recalledExerciseTab();
-
-function setExerciseRange(start: number, end: number): void {
-  dom.exerciseRangeStart.value = dayKey(start);
-  dom.exerciseRangeEnd.value = dayKey(end);
-}
-
-function firstExerciseDay(): number {
-  const first = Math.min(...(current?.exercises ?? []).map((e) => e.timestamp));
-  return Number.isFinite(first) ? startOfDay(first) : startOfDay(Date.now());
-}
-
-function drawExercise(): void {
-  if (!current) return;
-  const start = readDateInput(dom.exerciseRangeStart);
-  const end = readDateInput(dom.exerciseRangeEnd);
-  if (start === null || end === null) return;
-  if (start > end) {
-    showToast('The start date must be on or before the end date');
-    return;
-  }
-  renderExerciseBreakdown(current, start, end, exerciseTab);
-}
-
-function selectExerciseTab(tab: ExerciseTab, focus = false): void {
-  exerciseTab = tab;
-  try {
-    localStorage.setItem(EXERCISE_TAB_KEY, tab);
-  } catch {
-    // Not remembered in private windows; the tab still switches.
-  }
-  drawExercise();
-  if (focus) dom.exerciseTabs.find((b) => b.dataset.tab === tab)?.focus();
-}
-
-dom.exerciseRangeStart.addEventListener('change', drawExercise);
-dom.exerciseRangeEnd.addEventListener('change', drawExercise);
-dom.exerciseCard.addEventListener('click', (event) => {
-  const target = event.target as HTMLElement;
-  const tab = target.closest<HTMLButtonElement>('[role="tab"]')?.dataset.tab as ExerciseTab | undefined;
-  if (tab) {
-    selectExerciseTab(tab);
-    return;
-  }
-  const preset = target.closest<HTMLButtonElement>('button[data-exercise-range]')?.dataset.exerciseRange;
-  if (!preset) return;
-  setExerciseRange(preset === 'all' ? firstExerciseDay() : daysAgo(Number(preset) - 1), Date.now());
-  drawExercise();
-});
-// Arrow keys move between tabs (Home/End jump to the ends), as in a standard tab list.
-document.getElementById('exercise-tabs')!.addEventListener('keydown', (event) => {
-  const index = EXERCISE_TABS.indexOf(exerciseTab);
-  const next =
-    event.key === 'ArrowRight' ? (index + 1) % EXERCISE_TABS.length
-    : event.key === 'ArrowLeft' ? (index - 1 + EXERCISE_TABS.length) % EXERCISE_TABS.length
-    : event.key === 'Home' ? 0
-    : event.key === 'End' ? EXERCISE_TABS.length - 1
-    : null;
-  if (next === null) return;
-  event.preventDefault();
-  selectExerciseTab(EXERCISE_TABS[next], true);
+  showToast(result.replaced ? 'Today\'s weight updated' : 'Weight logged');
 });
 
 const longDay = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-
-// Category dropdowns in the food data table. Adding a category to an uncategorized entry saves right
-// away; changing an existing category asks first. Either way the save rewrites testdata/<name>-food.csv.
-dom.foodTableBody.addEventListener('change', async (event) => {
-  const select = (event.target as HTMLElement).closest<HTMLSelectElement>('select.food-category-select');
-  const food = current?.foods?.find((f) => f.id === select?.dataset.foodId);
-  const next = categoryFromText(select?.value);
-  if (!current || !select || !food || !next || next === food.category) return;
-
-  if (food.category) {
-    const ok = await confirmChange({
-      title: 'Change this category?',
-      message: `"${food.text}" on ${longDay.format(food.timestamp)}:`,
-      lines: [`From: ${categoryLabel(food.category)}`, `To: ${categoryLabel(next)}`],
-      confirmLabel: 'Change category',
-    });
-    if (!ok || !current) {
-      select.value = food.category;
-      return;
-    }
-  }
-  const previous = food.category;
-  current.foods = (current.foods ?? []).map((f) => (f.id === food.id ? { ...f, category: next } : f));
-  await saveUser(current);
-  render();
-  showToast(previous ? `Changed to ${categoryLabel(next)}` : `Added ${categoryLabel(next)}`);
-});
-
-// Category dropdowns in the exercise data table: changing a session's category asks first, then the save
-// rewrites testdata/<name>-exercise.csv and the charts move its minutes to the new category.
-dom.exerciseTableBody.addEventListener('change', async (event) => {
-  const select = (event.target as HTMLElement).closest<HTMLSelectElement>('select.exercise-category-select');
-  const session = current?.exercises?.find((x) => x.id === select?.dataset.exerciseId);
-  const next = exerciseCategoryFromText(select?.value);
-  if (!current || !select || !session || !next || next === session.category) return;
-
-  const ok = await confirmChange({
-    title: 'Change this category?',
-    message: `"${session.name}" on ${longDay.format(session.timestamp)}:`,
-    lines: [`From: ${exerciseCategoryLabel(session.category)}`, `To: ${exerciseCategoryLabel(next)}`],
-    confirmLabel: 'Change category',
-  });
-  if (!ok || !current) {
-    select.value = session.category;
-    return;
-  }
-  current.exercises = (current.exercises ?? []).map((x) => (x.id === session.id ? { ...x, category: next } : x));
-  await saveUser(current);
-  render();
-  showToast(`Changed to ${exerciseCategoryLabel(next)}`);
-});
 
 // --- Correct a weight: replace one date's weight, always after a confirmation pop-up.
 
@@ -686,20 +456,19 @@ dom.overrideForm.addEventListener('submit', async (event) => {
     showToast('Enter a weight greater than 0');
     return;
   }
-  const result = overrideDay(current.entries, day, weight, current.unit, Date.now(), crypto.randomUUID());
+  const result = overrideDay(current.entries, dayKey(day), weight, crypto.randomUUID());
   const unit = current.unit;
   const ok = await confirmChange(
-    result.replaced.length
+    result.replaced
       ? {
           title: 'Overwrite this weight?',
-          message: `${longDay.format(day)} currently has:`,
-          lines: result.replaced.map((e) => formatEntry(e[unit], e.timestamp, unit)),
-          warning: `${result.replaced.length > 1 ? 'These entries' : 'This entry'} will be replaced by ${formatEntry(weight, result.entry.timestamp, unit)}. This can't be undone from the app.`,
+          message: `${longDay.format(day)} currently has ${formatEntry(result.replaced.weight, unit)}.`,
+          warning: `It will be replaced by ${formatEntry(result.entry.weight, unit)}. This can't be undone from the app.`,
           confirmLabel: 'Overwrite',
         }
       : {
           title: 'Add this weight?',
-          message: `Nothing is logged on ${longDay.format(day)}. This will add ${formatEntry(weight, result.entry.timestamp, unit)}.`,
+          message: `Nothing is logged on ${longDay.format(day)}. This will add ${formatEntry(result.entry.weight, unit)}.`,
           confirmLabel: 'Add entry',
         },
   );
@@ -708,16 +477,18 @@ dom.overrideForm.addEventListener('submit', async (event) => {
   await saveUser(current);
   dom.overrideWeight.value = '';
   render();
-  showToast(result.replaced.length ? 'Weight overwritten' : 'Weight added');
+  showToast(result.replaced ? 'Weight overwritten' : 'Weight added');
 });
 
-// kg | lb switch: only changes which stored column the page reads, so no data is converted or lost.
+// kg | lb switch: the unit is a setting of the whole profile, so every saved weight is converted to the new
+// unit (kept to 2 decimals, so switching back and forth loses almost nothing) and the weight file is rewritten.
 dom.unitToggle.addEventListener('click', async (event) => {
   const unit = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-unit]')?.dataset.unit;
   if (!current || (unit !== 'kg' && unit !== 'lb') || unit === current.unit) return;
+  current.entries = convertEntries(current.entries, current.unit, unit);
   current.unit = unit;
   render();
-  // Remember the choice for this profile (profiles.csv keeps it for other browsers too).
+  // profiles.csv keeps the unit for other browsers, and the weight file is rewritten in it.
   await saveUser(current);
 });
 
@@ -731,20 +502,15 @@ function download(blob: Blob, fileName: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Exports all three logs as one "Juju-data-2026-10-14.zip" of CSVs. Every file is included even when empty. */
+/** Exports the weight log as "weight-Juju-2026-10-14.csv", as a backup. */
 dom.exportBtn.addEventListener('click', () => {
   if (!current) return;
   const name = current.name.replace(/[^\w-]+/g, '_');
   const date = new Date().toISOString().slice(0, 10);
-  const files: Record<string, string> = {
-    [`weight-${name}-${date}.csv`]: toWeightCsv(current),
-    [`food-${name}-${date}.csv`]: toFoodCsv(current),
-    [`exercise-${name}-${date}.csv`]: toExerciseCsv(current),
-  };
-  download(new Blob([zipFiles(files) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), `${name}-data-${date}.zip`);
+  download(new Blob([toWeightCsv(current)], { type: 'text/csv' }), `weight-${name}-${date}.csv`);
 });
 
-const FILE_LABELS = ['Weight', 'Food', 'Exercise'];
+const FILE_LABELS = ['Weight'];
 
 /**
  * "Edit data…": there's no import. The data folder's files are the data, so this shows where they are (with links
@@ -877,11 +643,27 @@ setSyncErrorHandler((err) => {
 
 onUserdataStatusChange(render);
 
-dom.rangeStart.addEventListener('change', drawChart);
-dom.rangeEnd.addEventListener('change', drawChart);
 dom.chartsCard.addEventListener('click', (event) => {
-  const chip = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-range-days]');
-  if (chip?.dataset.rangeDays) applyPreset(chip.dataset.rangeDays);
+  const target = event.target as HTMLElement;
+  const view = target.closest<HTMLButtonElement>('[role="tab"][data-view]')?.dataset.view;
+  if (view === 'weight' || view === 'slope') {
+    if (view !== chartView) showChartView(view);
+    return;
+  }
+  const range = target.closest<HTMLButtonElement>('button[data-range]')?.dataset.range;
+  if (range !== '90' && range !== 'all') return;
+  chartRange = range;
+  drawChart();
+});
+// Left/Right arrows (and Home/End) move between the Weight and Slope tabs, as in a standard tab list.
+dom.chartTabs[0]?.parentElement?.addEventListener('keydown', (event) => {
+  const next =
+    event.key === 'ArrowRight' || event.key === 'End' ? 'slope'
+    : event.key === 'ArrowLeft' || event.key === 'Home' ? 'weight'
+    : null;
+  if (!next) return;
+  event.preventDefault();
+  showChartView(next, true);
 });
 
 // Redraw at the new width when the layout changes size.
@@ -893,14 +675,6 @@ new ResizeObserver(([entry]) => {
     drawChart();
   }
 }).observe(dom.chartsCard);
-let lastExerciseWidth = 0;
-new ResizeObserver(([entry]) => {
-  const width = Math.round(entry.contentRect.width);
-  if (width !== lastExerciseWidth) {
-    lastExerciseWidth = width;
-    drawExercise();
-  }
-}).observe(dom.exerciseCard);
 
 // Recompute stats when the app comes back into view, since the windows depend on today's date.
 // Also reload the profile from its files: they may have been edited directly (see "Edit data…") or changed

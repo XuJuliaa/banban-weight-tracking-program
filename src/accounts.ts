@@ -2,34 +2,35 @@
 // Instead of a password, the user types a weight close to what they've logged (see loginRange).
 // The session only remembers who is logged in on this tab.
 
-import { dayKey } from './stats';
 import type { WeightEntry, WeightUnit } from './types';
+import { convertWeight } from './units';
 
 const SESSION_KEY = 'session';
 
 /**
  * The weights (in `unit`, both ends included) that unlock a profile, or null when nothing is logged yet.
- * Whole numbers only: from the lowest weigh-in rounded down to the highest rounded up, so 130 and 130.8
- * give 130–131. With weigh-ins on just one day, it's also at least the nearest whole number ± 1, so a
- * single 128.6 gives 128–130.
+ * `entries` are in the profile's unit, `entriesUnit`; they're converted when the login weight is typed in
+ * the other unit. Whole numbers only: from the lowest weigh-in rounded down to the highest rounded up, so
+ * 130 and 130.8 give 130–131. With weigh-ins on just one day, it's also at least the nearest whole
+ * number ± 1, so a single 128.6 gives 128–130.
  */
-export function loginRange(entries: WeightEntry[], unit: WeightUnit): { min: number; max: number } | null {
+export function loginRange(entries: WeightEntry[], entriesUnit: WeightUnit, unit: WeightUnit): { min: number; max: number } | null {
   if (!entries.length) return null;
-  const weights = entries.map((e) => e[unit]);
+  const weights = entries.map((e) => convertWeight(e.weight, entriesUnit, unit));
   const low = Math.min(...weights);
   const high = Math.max(...weights);
   let min = Math.floor(low);
   let max = Math.ceil(high);
-  if (new Set(entries.map((e) => dayKey(e.timestamp))).size < 2) {
+  if (new Set(entries.map((e) => e.date)).size < 2) {
     min = Math.min(min, Math.round(low) - 1);
     max = Math.max(max, Math.round(high) + 1);
   }
   return { min, max };
 }
 
-/** True when `weight` (in `unit`) is in the login range; also true when nothing is logged yet, as there's nothing to check. */
-export function weightMatches(entries: WeightEntry[], weight: number, unit: WeightUnit): boolean {
-  const range = loginRange(entries, unit);
+/** True when `weight` (typed in `unit`) is in the login range; also true when nothing is logged yet, as there's nothing to check. */
+export function weightMatches(entries: WeightEntry[], entriesUnit: WeightUnit, weight: number, unit: WeightUnit): boolean {
+  const range = loginRange(entries, entriesUnit, unit);
   if (!range) return true;
   return Number.isFinite(weight) && weight >= range.min && weight <= range.max;
 }

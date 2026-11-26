@@ -1,25 +1,13 @@
 // A folder of profile CSV files, independent of where the folder lives:
 //   profiles.csv          name,unit
-//   <slug>-weight.csv     timestamp,weight_kg,weight_lb,entered_unit
-//   <slug>-food.csv       timestamp,food,category
-//   <slug>-exercise.csv   timestamp,activity,category,minutes
+//   <slug>-weight.csv     date,weight_kg  or  date,weight_lb   (one row per date, in the profile's unit)
 // Used by the local save service (server/userdata-files.ts, Node fs) and by a folder the user picks
 // in the browser (src/folder-store.ts, File System Access API).
 
-import {
-  csvField,
-  parseCsvRows,
-  parseExerciseCsv,
-  parseFoodCsv,
-  parseWeightCsv,
-  toExerciseCsv,
-  toFoodCsv,
-  toWeightCsv,
-} from './csv.ts';
-import { exerciseCategoryFromText, validMinutes } from './exercise.ts';
-import { categoryFromText } from './food.ts';
+import { csvField, parseCsvRows, parseWeightCsv, toWeightCsv } from './csv.ts';
 import { profileSlug } from './names.ts';
-import type { ExerciseEntry, FileProfile, FileProfileData, FoodEntry, UserData, WeightEntry, WeightUnit } from './types.ts';
+import { isDateKey } from './units.ts';
+import type { FileProfile, FileProfileData, UserData, WeightEntry, WeightUnit } from './types.ts';
 
 /** Plain-text files in one folder, by file name. */
 export interface TextStore {
@@ -41,15 +29,21 @@ export const INDEX = 'profiles.csv';
 export const VALID_SLUG = /^[a-z0-9-]{1,60}$/;
 
 export const weightFile = (slug: string) => `${slug}-weight.csv`;
-export const foodFile = (slug: string) => `${slug}-food.csv`;
-export const exerciseFile = (slug: string) => `${slug}-exercise.csv`;
-export const profileFiles = (slug: string) => [weightFile(slug), foodFile(slug), exerciseFile(slug)];
+/** Where the weight file's previous text is kept when it's cleaned up (see cleanWeightFile). */
+export const weightBackupFile = (slug: string) => `${slug}-weight.backup.csv`;
+/** The files a profile's data lives in, as shown under "Edit data…". */
+export const profileFiles = (slug: string) => [weightFile(slug)];
+/**
+ * Food and exercise logs written by older versions, which had food and exercise tracking. They're no longer
+ * read or written, and are left in the folder untouched; they're only deleted along with their profile.
+ */
+const oldLogFiles = (slug: string) => [`${slug}-food.csv`, `${slug}-exercise.csv`];
 
-/** The unit the first weigh-in was entered in (either CSV format), or kg. Used as a default display unit. */
+/** The weight file's unit (from its header, or an older file's first row), or kg. Used when profiles.csv has no row. */
 export function detectUnit(weightCsv: string | null): WeightUnit {
   if (!weightCsv) return 'kg';
   try {
-    return parseWeightCsv(weightCsv, 'kg').entries[0]?.entered ?? 'kg';
+    return parseWeightCsv(weightCsv, 'kg').fileUnit ?? 'kg';
   } catch {
     return 'kg';
   }
@@ -86,47 +80,57 @@ export async function listProfiles(store: TextStore): Promise<FileProfile[]> {
   return index;
 }
 
-/** One profile's data, or null if it has no files. Entry ids are made from row order, since CSV rows have none. */
+/**
+ * One profile's data, or null if it has no weight file. Entry ids are made from row order, since CSV rows have none.
+ * A weight file that needs cleaning up (older format, another unit, duplicate dates, unrounded weights) is
+ * rewritten first; see cleanWeightFile.
+ */
 export async function readProfile(store: TextStore, slug: string): Promise<FileProfileData | null> {
-  const weightCsv = await store.read(weightFile(slug));
-  const foodCsv = await store.read(foodFile(slug));
-  const exerciseCsv = await store.read(exerciseFile(slug));
-  if (weightCsv === null && foodCsv === null && exerciseCsv === null) return null;
+  let weightCsv = await store.read(weightFile(slug));
+  if (weightCsv === null) return null;
   const meta = (await readIndex(store)).find((p) => p.slug === slug) ?? {
     slug,
     name: nameFromSlug(slug),
     unit: detectUnit(weightCsv),
   };
+  if (await cleanWeightFile(store, slug, meta.unit, weightCsv)) weightCsv = (await store.read(weightFile(slug))) ?? '';
   const entries: WeightEntry[] = weightCsv
-    ? parseWeightCsv(weightCsv, meta.unit).entries.map((e, i) => ({ id: `w${i}-${e.timestamp}`, ...e }))
+    ? parseWeightCsv(weightCsv, meta.unit).entries.map((e, i) => ({ id: `w${i}-${e.date}`, ...e }))
     : [];
-  const foods: FoodEntry[] = foodCsv ? parseFoodCsv(foodCsv).map((f, i) => ({ id: `f${i}-${f.timestamp}`, ...f })) : [];
-  const exercises: ExerciseEntry[] = exerciseCsv
-    ? parseExerciseCsv(exerciseCsv).map((x, i) => ({ id: `x${i}-${x.timestamp}`, ...x }))
-    : [];
-  return { ...meta, entries, foods, exercises };
+  return { ...meta, entries };
 }
 
 /**
- * Writes a profile's CSVs and its profiles.csv row. Returns the slug. The exercise file is only written
- * when the record has an exercise list, so a record from before exercise logging can't empty it.
+ * Rewrites `<slug>-weight.csv` as one row per date in `unit`, up to 2 decimals, when it isn't already:
+ * an older format with times, another unit, or several rows on one date (averaged into one). The previous
+ * text is saved as `<slug>-weight.backup.csv` first. Returns true if the file was rewritten.
  */
-export async function writeProfile(
-  store: TextStore,
-  user: Pick<UserData, 'name' | 'unit' | 'entries' | 'foods' | 'exercises'>,
-): Promise<string> {
+export async function cleanWeightFile(store: TextStore, slug: string, unit: WeightUnit, text?: string): Promise<boolean> {
+  const original = text ?? (await store.read(weightFile(slug)));
+  if (original === null) return false;
+  let parsed;
+  try {
+    parsed = parseWeightCsv(original, unit);
+  } catch {
+    return false; // No usable header: leave the file for the user to fix rather than overwrite it.
+  }
+  if (!parsed.needsCleanup) return false;
+  await store.write(weightBackupFile(slug), original);
+  await store.write(weightFile(slug), toWeightCsv({ unit, entries: parsed.entries.map((e, i) => ({ id: String(i), ...e })) }));
+  return true;
+}
+
+/** Writes a profile's weight CSV and its profiles.csv row. Returns the slug. */
+export async function writeProfile(store: TextStore, user: Pick<UserData, 'name' | 'unit' | 'entries'>): Promise<string> {
   const slug = profileSlug(user.name);
-  const record: UserData = { version: 1, userId: slug, ...user };
-  await store.write(weightFile(slug), toWeightCsv(record));
-  await store.write(foodFile(slug), toFoodCsv(record));
-  if (user.exercises) await store.write(exerciseFile(slug), toExerciseCsv(record));
+  await store.write(weightFile(slug), toWeightCsv(user));
   const index = (await readIndex(store)).filter((p) => p.slug !== slug);
   await writeIndex(store, [...index, { slug, name: user.name.trim(), unit: user.unit }]);
   return slug;
 }
 
 export async function removeProfile(store: TextStore, slug: string): Promise<void> {
-  for (const f of profileFiles(slug)) await store.remove(f);
+  for (const f of [weightFile(slug), weightBackupFile(slug), ...oldLogFiles(slug)]) await store.remove(f);
   const index = await readIndex(store);
   if (index.some((p) => p.slug === slug)) await writeIndex(store, index.filter((p) => p.slug !== slug));
 }
@@ -142,27 +146,7 @@ export function validateUser(raw: unknown, slug: string): UserData {
     profileSlug(d.name) === slug &&
     (d.unit === 'kg' || d.unit === 'lb') &&
     Array.isArray(d.entries) &&
-    d.entries.every(
-      (e) => Number.isFinite(e?.timestamp) && Number.isFinite(e?.kg) && Number.isFinite(e?.lb) && (e?.entered === 'kg' || e?.entered === 'lb'),
-    ) &&
-    (d.foods === undefined ||
-      (Array.isArray(d.foods) &&
-        d.foods.every(
-          (f) =>
-            Number.isFinite(f?.timestamp) &&
-            typeof f?.text === 'string' &&
-            (f.category === undefined || categoryFromText(f.category) !== null),
-        ))) &&
-    (d.exercises === undefined ||
-      (Array.isArray(d.exercises) &&
-        d.exercises.every(
-          (x) =>
-            Number.isFinite(x?.timestamp) &&
-            typeof x?.name === 'string' &&
-            x.name.trim().length > 0 &&
-            exerciseCategoryFromText(x.category) !== null &&
-            validMinutes(x.minutes),
-        )));
+    d.entries.every((e) => typeof e?.id === 'string' && isDateKey(e.date) && Number.isFinite(e.weight) && e.weight > 0);
   if (!ok) throw new Error('Invalid user record');
   return d as UserData;
 }

@@ -66,17 +66,6 @@ export function loggingFrequency30d(entries: WeightPoint[], now: number): Loggin
   };
 }
 
-/** Food and exercise unlock once at least this share of the last 30 days has a weigh-in. */
-export const UNLOCK_PCT = 80;
-
-/**
- * How many more logged days are needed to reach UNLOCK_PCT (24 of 30 days); 0 means unlocked.
- * Counted in whole days so exactly 80% unlocks.
- */
-export function daysToUnlock(freq: LoggingFrequency): number {
-  return Math.max(0, Math.ceil((freq.totalDays * UNLOCK_PCT) / 100) - freq.daysLogged);
-}
-
 export interface SeriesPoint {
   /** Epoch ms. */
   x: number;
@@ -97,6 +86,26 @@ export function addDays(timestamp: number, days: number): number {
   const d = new Date(timestamp);
   d.setDate(d.getDate() + days);
   return d.getTime();
+}
+
+/** The weight chart's period: the past 90 days, or all time. */
+export type ChartRange = '90' | 'all';
+export const CHART_DAYS = 90;
+
+/**
+ * The weight chart's first and last days (local midnight) for weigh-ins on `dates` ("YYYY-MM-DD", any order).
+ * Both periods end on the last weigh-in's date, not today: "90" is the 90 days up to it, "all" starts on the
+ * first weigh-in. With nothing logged, it's the 90 days up to `now`.
+ */
+export function chartPeriod(dates: string[], range: ChartRange, now: number): { start: number; end: number } {
+  const sorted = [...dates].sort();
+  const dayOf = (date: string) => {
+    const [y, m, d] = date.split('-').map(Number);
+    return new Date(y, m - 1, d).getTime();
+  };
+  const end = sorted.length ? dayOf(sorted[sorted.length - 1]) : startOfDay(now);
+  const start = range === 'all' && sorted.length ? dayOf(sorted[0]) : addDays(end, -(CHART_DAYS - 1));
+  return { start, end };
 }
 
 /** Raw entries between the start of `startDay` and the end of `endDay`, oldest first. */
@@ -125,27 +134,16 @@ export function movingAverageSeries(entries: WeightPoint[], startDay: number, en
 
 const DAY_MS = 86_400_000;
 
-/** Number of calendar days from `startDay` to `endDay`, both included (a 30-day preset gives 30). */
-export function daysInRange(startDay: number, endDay: number): number {
-  return Math.round((startOfDay(endDay) - startOfDay(startDay)) / DAY_MS) + 1;
-}
-
-export interface Trend {
-  /** Change per day, in the points' unit. */
-  slopePerDay: number;
-  /** The fitted line's value at `x` (epoch ms). */
-  at: (x: number) => number;
-}
+/** Whole calendar days from `from` to `to` (local dates), so daylight-saving shifts don't skew a fit. */
+const daysBetween = (from: number, to: number) => Math.round((startOfDay(to) - startOfDay(from)) / DAY_MS);
 
 /**
- * Least-squares straight line through the points (x in epoch ms). Null with fewer than two points,
- * or when they're all at the same moment (no slope to fit).
+ * Least-squares slope of `points` (x in epoch ms), in y per calendar day. Null with fewer than two
+ * different days, since there's no slope to fit.
  */
-export function linearTrend(points: { x: number; y: number }[]): Trend | null {
+export function linearSlope(points: { x: number; y: number }[]): number | null {
   if (points.length < 2) return null;
-  const x0 = points[0].x;
-  // Days from the first point, so the sums stay small and the slope comes out per day.
-  const xs = points.map((p) => (p.x - x0) / DAY_MS);
+  const xs = points.map((p) => daysBetween(points[0].x, p.x));
   const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
   const meanY = points.reduce((a, p) => a + p.y, 0) / points.length;
   let sxx = 0;
@@ -154,34 +152,30 @@ export function linearTrend(points: { x: number; y: number }[]): Trend | null {
     sxx += (x - meanX) ** 2;
     sxy += (x - meanX) * (points[i].y - meanY);
   });
-  if (sxx === 0) return null;
-  const slopePerDay = sxy / sxx;
-  return { slopePerDay, at: (x) => meanY + slopePerDay * ((x - x0) / DAY_MS - meanX) };
+  return sxx === 0 ? null : sxy / sxx;
 }
 
-const UNIT_WORDS = { kg: ['kilogram', 'kilograms'], lb: ['pound', 'pounds'] } as const;
+/** The slope chart: a linear fit over the 60 calendar days ending on each weigh-in… */
+export const SLOPE_WINDOW_DAYS = 60;
+/** …shown only when at least 30% of those days (18 of 60) have a weigh-in… */
+export const SLOPE_MIN_DAYS = Math.ceil(SLOPE_WINDOW_DAYS * 0.3);
+/** …as the change over 30 days at that pace. */
+export const SLOPE_PER_DAYS = 30;
 
 /**
- * How much the trend line falls or rises from the first to the last of `points` (oldest first), or null
- * without a trend. Measured only where there are weigh-ins, so the line is never extended past the data.
+ * The 30-day pace for each weigh-in between the start of `startDay` and the end of `endDay`, oldest first:
+ * the least-squares slope of the weigh-ins in the 60 calendar days ending on that weigh-in's date (which may
+ * reach back before `startDay`), times 30. It's null (a gap in the line) when fewer than 18 of those days
+ * have a weigh-in. Negative means losing weight.
  */
-export function trendChange(trend: Trend | null, points: { x: number }[]): number | null {
-  if (!trend || points.length < 2) return null;
-  return trend.at(points[points.length - 1].x) - trend.at(points[0].x);
-}
-
-/**
- * The sentence above the weight chart, in whole numbers, e.g. "You have lost 3 pounds over the past 30
- * days. Congrats!" or "…gained… Work harder!!". `change` is from trendChange; `days` is the length of the chosen range. `endsToday` is false for
- * a range that ends before today, which reads "over these 30 days" instead.
- */
-export function trendSentence(change: number | null, days: number, unit: 'kg' | 'lb', endsToday = true): string {
-  if (change === null) return 'Log at least two weigh-ins in this period to see your trend.';
-  const span = `${endsToday ? 'the past' : 'these'} ${days} ${days === 1 ? 'day' : 'days'}`;
-  const amount = Math.round(Math.abs(change));
-  if (amount === 0) return `You have held your weight steady over ${span}.`;
-  const [one, many] = UNIT_WORDS[unit];
-  return change < 0
-    ? `You have lost ${amount} ${amount === 1 ? one : many} over ${span}. Congrats!`
-    : `You have gained ${amount} ${amount === 1 ? one : many} over ${span}. Work harder!!`;
+export function slopeSeries(entries: WeightPoint[], startDay: number, endDay: number): SeriesPoint[] {
+  const sorted = [...entries].sort((a, b) => a.timestamp - b.timestamp);
+  return weightSeries(sorted, startDay, endDay).map((p) => {
+    const from = windowStart(p.x, SLOPE_WINDOW_DAYS);
+    const to = addDays(startOfDay(p.x), 1);
+    const window = sorted.filter((e) => e.timestamp >= from && e.timestamp < to);
+    const days = new Set(window.map((e) => dayKey(e.timestamp))).size;
+    const slope = days >= SLOPE_MIN_DAYS ? linearSlope(window.map((e) => ({ x: e.timestamp, y: e.weight }))) : null;
+    return { x: p.x, y: slope === null ? null : slope * SLOPE_PER_DAYS, id: p.id };
+  });
 }

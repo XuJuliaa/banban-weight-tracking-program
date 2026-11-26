@@ -13,28 +13,37 @@ function memoryStore(initial: Record<string, string> = {}): TextStore & { files:
   };
 }
 
-const at = (h: number, m = 0) => new Date(2026, 9, 11, h, m).getTime();
 const juju = {
   name: 'Juju',
   unit: 'lb' as const,
-  entries: [{ id: 'e1', timestamp: at(7, 30), kg: 70.2, lb: 154.76, entered: 'lb' as const }],
-  foods: [{ id: 'f1', timestamp: at(8), text: 'Toast', category: 'grains' as const }],
-  exercises: [{ id: 'x1', timestamp: at(6), name: 'Run', category: 'cardio' as const, minutes: 30 }],
+  entries: [{ id: 'e1', date: '2026-10-11', weight: 154.8 }],
 };
 
 describe('profile files over any TextStore', () => {
   it('writes the same layout as testdata/ and reads it back', async () => {
     const store = memoryStore();
     expect(await writeProfile(store, juju)).toBe('juju');
-    expect([...store.files.keys()].sort()).toEqual(['juju-exercise.csv', 'juju-food.csv', 'juju-weight.csv', 'profiles.csv']);
+    expect([...store.files.keys()].sort()).toEqual(['juju-weight.csv', 'profiles.csv']);
     expect(store.files.get('profiles.csv')).toBe('name,unit\nJuju,lb\n');
 
     const data = await readProfile(store, 'juju');
     expect(data?.unit).toBe('lb');
-    expect(data?.entries.map((e) => e.lb)).toEqual([154.76]);
-    expect(data?.foods.map((f) => f.text)).toEqual(['Toast']);
-    expect(data?.exercises.map((x) => [x.name, x.minutes])).toEqual([['Run', 30]]);
+    expect(store.files.get('juju-weight.csv')).toBe('date,weight_lb\n2026-10-11,154.8\n');
+    expect(data?.entries.map((e) => [e.date, e.weight])).toEqual([['2026-10-11', 154.8]]);
+    expect(Object.keys(data ?? {}).sort()).toEqual(['entries', 'name', 'slug', 'unit']);
     expect(await readProfile(store, 'nobody')).toBeNull();
+  });
+
+  it('leaves food and exercise files from older versions untouched, and ignores them', async () => {
+    const food = 'timestamp,food,category\n2026-10-11T08:00:00,Toast,Grains & starches\n';
+    const exercise = 'timestamp,activity,category,minutes\n2026-10-11T06:00:00,Run,Cardio,30\n';
+    const store = memoryStore({ 'juju-food.csv': food, 'juju-exercise.csv': exercise });
+    // Without a weight file there's no profile to open.
+    expect(await readProfile(store, 'juju')).toBeNull();
+    await writeProfile(store, juju);
+    await readProfile(store, 'juju');
+    expect(store.files.get('juju-food.csv')).toBe(food);
+    expect(store.files.get('juju-exercise.csv')).toBe(exercise);
   });
 
   it('lists profiles from profiles.csv plus weight files without a row', async () => {
@@ -51,12 +60,34 @@ describe('profile files over any TextStore', () => {
     await writeProfile(store, juju);
     await writeProfile(store, { ...juju, name: 'Ana' });
     await removeProfile(store, 'juju');
-    expect([...store.files.keys()].sort()).toEqual(['ana-exercise.csv', 'ana-food.csv', 'ana-weight.csv', 'profiles.csv']);
+    expect([...store.files.keys()].sort()).toEqual(['ana-weight.csv', 'profiles.csv']);
     expect(store.files.get('profiles.csv')).toBe('name,unit\nAna,lb\n');
+  });
+
+  it('cleans up a weight file with duplicate dates or an older format once, keeping a backup', async () => {
+    const old = 'timestamp,weight_kg,weight_lb,entered_unit\n2026-10-11T07:00:00,70,154.32,kg\n2026-10-11T20:00:00,70.5,155.43,kg\n';
+    const store = memoryStore({ 'profiles.csv': 'name,unit\nJuju,kg\n', 'juju-weight.csv': old });
+    const data = await readProfile(store, 'juju');
+    expect(data?.entries.map((e) => [e.date, e.weight])).toEqual([['2026-10-11', 70.25]]);
+    expect(store.files.get('juju-weight.csv')).toBe('date,weight_kg\n2026-10-11,70.25\n');
+    expect(store.files.get('juju-weight.backup.csv')).toBe(old);
+
+    // A clean file is left alone.
+    store.files.delete('juju-weight.backup.csv');
+    await readProfile(store, 'juju');
+    expect(store.files.has('juju-weight.backup.csv')).toBe(false);
+  });
+
+  it('leaves a weight file it cannot read untouched', async () => {
+    const store = memoryStore({ 'juju-weight.csv': 'nonsense\n1,2\n' });
+    await expect(readProfile(store, 'juju')).rejects.toThrow(/header/);
+    expect(store.files.get('juju-weight.csv')).toBe('nonsense\n1,2\n');
+    expect(store.files.has('juju-weight.backup.csv')).toBe(false);
   });
 
   it('validates records before they are written', () => {
     expect(validateUser({ version: 1, userId: 'u', ...juju }, 'juju').name).toBe('Juju');
-    expect(() => validateUser({ ...juju, exercises: [{ ...juju.exercises[0], minutes: -5 }] }, 'juju')).toThrow(/Invalid/);
+    expect(() => validateUser({ ...juju, entries: [{ id: 'e', date: '2026-10-11T07:00', weight: 70 }] }, 'juju')).toThrow(/Invalid/);
+    expect(() => validateUser({ ...juju, entries: [{ id: 'e', timestamp: 1, kg: 70, lb: 154.3, entered: 'kg' }] }, 'juju')).toThrow(/Invalid/);
   });
 });
