@@ -372,11 +372,6 @@ button.danger { background: transparent; color: var(--danger); border-color: var
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 420px) { .stats { grid-template-columns: 1fr; } }
 
-/* Food and exercise are greyed out and inert until 80% of the last 30 days have a weigh-in. */
-.food-exercise, .lockable { display: grid; gap: 16px; }
-.lockable.is-locked { opacity: 0.45; filter: grayscale(0.6); user-select: none; }
-.lock-note { margin: 0; border-color: var(--accent); }
-.lock-note strong { color: var(--accent); }
 
 .stat { display: flex; flex-direction: column; gap: 4px; }
 .stat-label { color: var(--muted); font-size: 0.9rem; }
@@ -427,9 +422,6 @@ dialog::backdrop { background: var(--backdrop); }
   clip: rect(0 0 0 0);
 }
 
-.range-row { display: flex; flex-wrap: wrap; gap: 12px; }
-.range-row label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); flex: 1; min-width: 140px; }
-.range-row input { color: var(--text); width: 100%; }
 
 .presets { margin-top: 8px; }
 button.chip {
@@ -444,6 +436,7 @@ button.chip {
   box-shadow: none;
 }
 button.chip:hover { background: var(--accent-soft); border-color: var(--accent-bright); color: var(--text); }
+button.chip[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); color: var(--text); font-weight: 600; }
 
 .chart { margin: 16px 0 0; }
 .chart figcaption { font-weight: 600; margin-bottom: 8px; }
@@ -453,13 +446,12 @@ button.chip:hover { background: var(--accent-soft); border-color: var(--accent-b
 .chart-axis { stroke: var(--chart-axis); stroke-width: 1; }
 .chart-tick { fill: var(--chart-ink); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.chart-line.series-weight { stroke: var(--series-1); stroke-width: 1.5; stroke-opacity: 0.7; }
+/* Daily weigh-ins stay thin and light so the eye goes to the trailing average, which is the number to watch. */
+.chart-line.series-weight { stroke: var(--series-1); stroke-width: 1.25; stroke-opacity: 0.55; }
 .chart-line.series-average { stroke: var(--series-ink); stroke-width: 2.5; }
-.chart-line.series-trend { stroke: var(--danger); stroke-width: 2.5; stroke-dasharray: 0.1 6; stroke-linecap: round; }
 .chart-dot { stroke: var(--surface); stroke-width: 2; }
 .chart-dot.series-weight, .chart-focus.series-weight { fill: var(--series-1); }
 .chart-dot.series-average, .chart-focus.series-average { fill: var(--series-ink); }
-.chart-focus.series-trend { fill: var(--danger); }
 .chart-focus { stroke: var(--surface); stroke-width: 2; pointer-events: none; }
 .chart-crosshair { stroke: var(--chart-axis); stroke-width: 1; pointer-events: none; }
 .chart-empty { padding: 32px 0; text-align: center; }
@@ -487,51 +479,21 @@ button.chip:hover { background: var(--accent-soft); border-color: var(--accent-b
 .chart-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 8px; font-size: 0.85rem; color: var(--muted); }
 .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .chart-swatch { display: inline-block; width: 16px; height: 0; border-top: 2.5px solid; flex: none; }
-.chart-swatch.series-weight { border-color: var(--series-1); position: relative; }
-.chart-swatch.series-weight::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: -4.25px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--series-1);
-}
+.chart-swatch.series-weight { border-top-width: 1.5px; border-color: var(--series-1); opacity: 0.6; }
 .chart-swatch.series-average { border-color: var(--series-ink); }
-.chart-swatch.series-trend { border-top-style: dotted; border-top-width: 3px; border-color: var(--danger); }
-/* Chart title on the left, the trend sentence in the top right corner. */
-.chart-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin-bottom: 8px; }
-.chart-head figcaption { margin-bottom: 0; }
-.trend-summary { margin: 0 0 0 auto; max-width: 52ch; text-align: right; font-size: 0.95rem; color: var(--text); }
-.trend-summary strong { color: var(--accent); }
 
-.chart-data { margin-top: 12px; font-size: 0.9rem; }
-.chart-data summary { cursor: pointer; color: var(--muted); }
-.chart-data table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-.chart-data th, .chart-data td { text-align: left; padding: 4px 0; border-bottom: 1px solid var(--border); }
-.chart-data td:not(:first-child), .chart-data th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+/* Slope chart: the 30-day pace, with a dashed line at 0 between gaining (above) and losing (below). */
+.chart-line.series-slope { stroke: var(--series-ink); stroke-width: 2; }
+.chart-dot.series-slope, .chart-focus.series-slope { fill: var(--series-ink); }
+.chart-swatch.series-slope { border-color: var(--series-ink); }
+.chart-zero { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.chart-tabs { margin-top: 12px; }
+
 
 code { font-size: 0.85em; }
 
 
-.food-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.food-form input { flex: 1 1 260px; min-width: 0; }
-.food-form select { flex: 0 1 200px; }
-.food-form select:invalid { color: var(--muted); }
-.food-hint { margin-top: 8px; }
-#food-empty { margin-top: 12px; }
-.food-day { margin-top: 16px; }
-.food-day h3 { font-size: 0.9rem; color: var(--muted); margin: 0 0 4px; font-weight: 600; }
-.food-day ul { list-style: none; margin: 0; padding: 0; }
-.food-day li { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--border); }
-.food-day li:first-child { border-top: none; }
-.food-day .time { color: var(--muted); font-size: 0.85rem; min-width: 64px; font-variant-numeric: tabular-nums; }
-.food-day .text { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
-.food-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
-.food-tag i { width: 8px; height: 8px; border-radius: 50%; background: var(--cat-color, var(--chart-axis)); }
-
-/* Section styles: input sections share one look, plots another, and data/backup stays quiet. */
+/* Section styles: input sections share one look, plots another. */
 .input-card { border-top: 3px solid var(--accent-bright); }
 .input-card h2, .input-card .entry-form > label { color: var(--accent); }
 
@@ -544,28 +506,27 @@ code { font-size: 0.85em; }
 }
 .plot-card h2 { font-size: 1.2rem; margin: 0; letter-spacing: -0.01em; }
 .plot-header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
-.plot-header .range-row { flex: 0 1 360px; }
-.plot-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 12px; }
-.plot-controls .presets { margin: 0; }
+.plot-header .presets { margin: 0; }
 .plot-card .chart { padding-top: 12px; border-top: 1px solid var(--border); }
 
-.quiet-section { padding: 4px 4px 24px; font-size: 0.8rem; color: var(--muted); }
-.quiet-section h2 { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px; }
-.quiet-section p { margin: 0 0 6px; }
-.quiet-section code { font-size: 0.95em; color: var(--text); overflow-wrap: anywhere; }
-.quiet-section .button-row { margin-top: 8px; }
-.quiet-section button { min-height: 32px; padding: 4px 10px; font-size: 0.8rem; font-weight: 500; }
+/* Data & backup, on the Settings page: where the data is saved, folder actions, export and edit. */
+.settings-section { padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.9rem; }
+.settings-section h3 { font-size: 1rem; margin: 0 0 6px; }
+.settings-section p { margin: 0 0 6px; color: var(--muted); }
+.settings-section code { font-size: 0.95em; color: var(--text); overflow-wrap: anywhere; }
+.settings-section .button-row { margin-top: 8px; }
 
-/* Correct a weight: lives at the end of the weight chart's "Show data table", so it's hidden until opened. */
+/* Correct a weight: a collapsed section under the weight chart, hidden until opened. */
+.override-details { margin-top: 16px; font-size: 0.9rem; }
+.override-details summary { cursor: pointer; color: var(--muted); }
 .override-panel {
-  margin-top: 20px;
+  margin-top: 12px;
   padding: 16px;
   border: 1px solid var(--border);
   border-top: 3px solid var(--accent-bright);
   border-radius: 12px;
   background: var(--surface);
 }
-.override-panel h3 { margin: 0 0 6px; font-size: 1rem; color: var(--accent); }
 .override-panel > p.muted { margin: 0; }
 .override-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 12px; }
 .override-form label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
@@ -584,101 +545,6 @@ code { font-size: 0.85em; }
 
 /* Import pop-up: per-entry conflict choices */
 
-/* "Edit data" dialog: the data files, with links to the Google Sheets on Drive. */
-.edit-files { margin: 8px 0 12px; padding-left: 20px; display: grid; gap: 6px; }
-.edit-files a, .edit-files code { overflow-wrap: anywhere; }
-
-/* Food breakdown pie. Category colours: validated categorical palette slots 1-6 (fixed per category). */
-:root {
-  --cat-protein: #2a78d6;
-  --cat-produce: #eb6834;
-  --cat-grains: #1baf7a;
-  --cat-dairy: #eda100;
-  --cat-snacks: #e87ba4;
-  --cat-drinks: #008300;
-  --cat-uncategorized: #a8a29e;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --cat-protein: #3987e5;
-    --cat-produce: #d95926;
-    --cat-grains: #199e70;
-    --cat-dairy: #c98500;
-    --cat-snacks: #d55181;
-    --cat-drinks: #008300;
-    --cat-uncategorized: #6b6560;
-  }
-}
-.cat-protein { --cat-color: var(--cat-protein); }
-.cat-produce { --cat-color: var(--cat-produce); }
-.cat-grains { --cat-color: var(--cat-grains); }
-.cat-dairy { --cat-color: var(--cat-dairy); }
-.cat-snacks { --cat-color: var(--cat-snacks); }
-.cat-drinks { --cat-color: var(--cat-drinks); }
-.cat-uncategorized { --cat-color: var(--cat-uncategorized); }
-
-.food-pie { display: flex; flex-wrap: wrap; align-items: center; gap: 24px 40px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
-.pie-figure { flex: 0 0 220px; }
-.pie-svg { display: block; width: 220px; height: 220px; }
-.pie-slice { fill: var(--cat-color); stroke: var(--surface); stroke-width: 2; stroke-linejoin: round; transition: opacity 0.15s; }
-.pie-slice.dim { opacity: 0.3; }
-.pie-legend { flex: 1 1 260px; list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.pie-legend li {
-  display: grid;
-  grid-template-columns: 12px 1fr auto 4.5ch;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  cursor: default;
-}
-.pie-legend li.active, .pie-legend li:focus-visible { background: var(--accent-soft); outline: none; }
-.pie-swatch { width: 12px; height: 12px; border-radius: 4px; background: var(--cat-color); }
-.pie-count { color: var(--muted); font-variant-numeric: tabular-nums; }
-.pie-pct { text-align: right; font-variant-numeric: tabular-nums; }
-.pie-detail { margin: 0; }
-
-/* Food data table: text columns, so no right-aligned numbers. */
-.food-data td:not(:first-child), .food-data th:not(:first-child) { text-align: left; font-variant-numeric: normal; }
-.food-data td:first-child { white-space: nowrap; color: var(--muted); padding-right: 16px; }
-.food-data td:last-child { white-space: nowrap; }
-.food-data .food-tag { font-size: 0.85rem; }
-
-/* Editable category in the food data table: a compact dropdown that sits inside the coloured tag. */
-.food-category-select {
-  min-height: 30px;
-  padding: 2px 30px 2px 8px;
-  font-size: 0.85rem;
-  border-radius: 8px;
-  background-color: transparent;
-  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-  color: var(--text);
-}
-.food-category-select:hover { background-color: var(--surface); }
-.cat-uncategorized .food-category-select { color: var(--muted); font-style: italic; }
-
-/* Exercise. Category colours: validated categorical palette slots 1-3 (fixed per category). */
-:root {
-  --ex-cardio: #2a78d6;
-  --ex-strength: #eb6834;
-  --ex-flexibility: #1baf7a;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ex-cardio: #3987e5;
-    --ex-strength: #d95926;
-    --ex-flexibility: #199e70;
-  }
-}
-.ex-cardio { --cat-color: var(--ex-cardio); }
-.ex-strength { --cat-color: var(--ex-strength); }
-.ex-flexibility { --cat-color: var(--ex-flexibility); }
-
-.exercise-form select { flex: 0 1 160px; }
-.exercise-minutes { display: inline-flex; align-items: center; gap: 6px; }
-.food-form .exercise-minutes input { flex: none; width: 88px; }
-#exercise-empty { margin-top: 12px; }
-.exercise-duration { min-width: 4.5ch; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .tabs {
   display: flex;
@@ -706,34 +572,6 @@ code { font-size: 0.85em; }
 }
 .tabs [role='tab']:hover { transform: none; color: var(--text); background: var(--accent-soft); }
 .tabs [role='tab'][aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cat-color); }
-.tab-panel { padding-top: 12px; }
-.exercise-caption { margin: 0 0 8px; }
-
-.exercise-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-.exercise-summary[hidden] { display: none; }
-.exercise-tile {
-  display: grid;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--cat-color);
-  border-radius: 12px;
-  background: var(--surface);
-}
-.exercise-tile-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
-.exercise-tile-name i { width: 8px; height: 8px; border-radius: 50%; background: var(--cat-color); }
-.exercise-tile-total { font-size: 1.5rem; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-
-.bar-chart .bar { fill: var(--cat-color); transition: opacity 0.15s; }
-.bar-chart .bar.dim { opacity: 0.35; }
-.chart-tooltip-note { color: var(--muted); max-width: 240px; white-space: normal; }
-
-/* Exercise data table: text columns except the minutes. */
-.exercise-data td:not(:first-child):not(.num), .exercise-data th:not(:first-child):not(.num) { text-align: left; font-variant-numeric: normal; }
-.exercise-data td:first-child { white-space: nowrap; color: var(--muted); padding-right: 16px; }
-.exercise-data .food-tag { font-size: 0.85rem; }
-
 /* Required "Data folder" field in the create-profile forms. */
 .folder-field {
   display: flex;
@@ -790,6 +628,30 @@ button.google-button:disabled { opacity: 0.6; cursor: progress; transform: none;
 .login-missing p { margin: 0 0 10px; }
 .account-name { color: var(--muted); font-size: 0.95rem; }
 .account-name strong { color: var(--text); }
+
+/* Settings page: one row per setting (label, control, help text), wrapping on phones. */
+.settings-page { display: grid; gap: 8px; }
+.settings-page h2 { margin: 4px 0 0; }
+.settings-page > p { margin: 0; }
+.back-btn { justify-self: start; }
+.settings-list { display: grid; margin-top: 8px; }
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.setting-row > :not(.setting-label) { justify-self: start; }
+.setting-label { font-weight: 600; }
+.setting-help { grid-column: 2; margin: 0; }
+.setting-input { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.setting-input input { width: 88px; color: var(--text); }
+@media (max-width: 520px) {
+  .setting-row { grid-template-columns: 1fr; }
+  .setting-help { grid-column: 1; }
+}
 
 /* Shown instead of the app when the data folder is missing, needs reconnecting, or isn't supported. */
 .folder-gate { border-top: 3px solid var(--accent-bright); }

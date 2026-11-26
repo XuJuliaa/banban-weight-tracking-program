@@ -1,16 +1,16 @@
 # BanBan Weight Tracker
 
-A free, private tracker for **weight, food and exercise**: https://xujuliaa.github.io/banban-weight-tracking-program/
+A free, private **weight** tracker: https://xujuliaa.github.io/banban-weight-tracking-program/
 
 It runs entirely in the browser and has no server. Your data is saved as files you own, in your Google Drive or in a
 folder on your computer, and nothing is sent to the developer. See the
 [privacy policy](https://xujuliaa.github.io/banban-weight-tracking-program/privacy.html).
 
 ## What it does
-- **Weight:** log weigh-ins in kg or lb, and see your 10-day average, how regularly you log, and a trend chart.
-- **Food:** log what you eat by category and see the mix as a pie chart.
-- **Exercise:** log cardio, strength and flexibility sessions and see your minutes per day.
-- **Your data:** download everything as a .zip, or edit the files directly.
+- **Weight:** log one weight per day in kg or lb, and see a trailing average (10 days by default), how regularly you log, and a chart of your daily weights.
+- **Slope:** see your current pace, the weight gained or lost per 30 days, from a straight-line fit over the previous 60 days (adjustable).
+- **Settings:** color scheme, kg or lb, the average and slope windows, and Log out, saved with your profile.
+- **Your data:** download it as a CSV file, or upload a CSV in the same format to replace it.
 - Works on phones and computers, offline too, and can be installed like an app.
 
 ## Where your data is saved

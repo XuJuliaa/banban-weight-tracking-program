@@ -1,7 +1,8 @@
 import { get, set } from 'idb-keyval';
 import { profileSlug } from './names';
 import type { FileProfileData, ProfileSummary, UserData, WeightEntry, WeightUnit } from './types';
-import { normalizeEntry } from './units';
+import { DEFAULT_SETTINGS, normalizeSettings } from './settings';
+import { mergeSameDay, normalizeEntry } from './units';
 import { fetchProfile, fetchProfileList, pushUserFiles } from './userdata-api';
 
 const PROFILES_KEY = 'profiles';
@@ -50,9 +51,8 @@ async function storeFromFiles(data: FileProfileData, userId: string, updatedAt?:
     userId,
     name: data.name,
     unit: data.unit,
+    settings: data.settings,
     entries: data.entries,
-    foods: data.foods,
-    exercises: data.exercises,
     updatedAt: updatedAt ?? Date.now(),
     ...(googleEmail ? { googleEmail } : {}),
   };
@@ -81,7 +81,15 @@ export async function openGoogleProfile(name: string, email: string): Promise<{ 
     await saveUser(localUser);
     return { user: localUser, existed: true };
   }
-  const data: UserData = { version: 1, userId: crypto.randomUUID(), name, unit: 'kg', entries: [], foods: [], exercises: [], googleEmail: email };
+  const data: UserData = {
+    version: 1,
+    userId: crypto.randomUUID(),
+    name,
+    unit: 'kg',
+    settings: { ...DEFAULT_SETTINGS },
+    entries: [],
+    googleEmail: email,
+  };
   await saveUser(data);
   return { user: data, existed: false };
 }
@@ -98,7 +106,7 @@ export async function createProfile(name: string, unit: WeightUnit): Promise<{ u
   const fromFiles = await fetchProfile(name).catch(() => undefined);
   if (fromFiles) return { user: await storeFromFiles(fromFiles, crypto.randomUUID()), existed: true };
 
-  const data: UserData = { version: 1, userId: crypto.randomUUID(), name, unit, entries: [], foods: [], exercises: [] };
+  const data: UserData = { version: 1, userId: crypto.randomUUID(), name, unit, settings: { ...DEFAULT_SETTINGS }, entries: [] };
   await saveUser(data);
   return { user: data, existed: false };
 }
@@ -148,12 +156,18 @@ export async function loadUserFromFiles(user: UserData): Promise<UserData> {
   return storeFromFiles(data, user.userId, user.updatedAt, user.googleEmail);
 }
 
-/** A profile from this browser. Entries saved before both units were stored are upgraded as they're read. */
+/**
+ * A profile from this browser. Entries saved by older versions (with times, or in both units) are read as
+ * one entry per date in the profile's unit, up to 2 decimals; several on one date are averaged.
+ */
 export async function loadUser(userId: string): Promise<UserData | undefined> {
   const user = await get<UserData>(userKey(userId));
   if (!user) return undefined;
   const entries = user.entries.map((e) => normalizeEntry(e, user.unit)).filter((e): e is WeightEntry => e !== null);
-  return { ...user, entries };
+  // Older versions also kept food and exercise logs in this record; they're no longer used, so drop them.
+  const { foods: _foods, exercises: _exercises, ...rest } = user as UserData & { foods?: unknown; exercises?: unknown };
+  // Records from before settings existed get the defaults.
+  return { ...rest, settings: normalizeSettings(rest.settings), entries: mergeSameDay(entries).entries };
 }
 
 /** Writes the user's whole record, keeps the profile list in sync, and writes their testdata/ CSV files. */

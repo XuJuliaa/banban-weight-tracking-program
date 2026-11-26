@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_SETTINGS } from './settings';
 import type { FileProfileData, UserData } from './types';
 
 // The browser database, in memory.
@@ -19,7 +20,7 @@ vi.mock('./userdata-api', () => ({
 
 const { createProfile, findProfileByName, openGoogleProfile } = await import('./storage');
 
-const entry = (id: string, kg: number) => ({ id, timestamp: new Date(2026, 9, 1).getTime(), kg, lb: kg * 2.20462, entered: 'kg' as const });
+const entry = (id: string, weight: number) => ({ id, date: '2026-10-01', weight });
 
 beforeEach(() => {
   db.clear();
@@ -37,10 +38,11 @@ describe('openGoogleProfile', () => {
 
   it("loads the account's Drive files, which win over this browser's copy", async () => {
     const first = (await openGoogleProfile('Juliet', 'juliet@example.com')).user;
-    driveFiles.set('juliet', { slug: 'juliet', name: 'Juliet', unit: 'lb', entries: [entry('a', 60)], foods: [], exercises: [] });
+    driveFiles.set('juliet', { slug: 'juliet', name: 'Juliet', unit: 'lb', settings: { ...DEFAULT_SETTINGS, averageDays: 7 }, entries: [entry('a', 60)] });
     const { user, existed } = await openGoogleProfile('Juliet', 'juliet@example.com');
     expect(existed).toBe(true);
     expect(user).toMatchObject({ userId: first.userId, unit: 'lb', googleEmail: 'juliet@example.com' });
+    expect(user.settings.averageDays).toBe(7);
     expect(user.entries).toHaveLength(1);
   });
 

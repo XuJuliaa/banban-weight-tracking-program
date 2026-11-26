@@ -1,30 +1,14 @@
-import { renderBarChart } from './bars';
 import { type ChartSeries, renderLineChart } from './chart';
 import {
-  dailyMinutes,
-  EXERCISE_CATEGORIES,
-  type ExerciseCategoryId,
-  exerciseCategoryLabel,
-  exercisesIn,
-  exerciseSummary,
-  formatMinutes,
-} from './exercise';
-import { categoryCounts, categoryLabel, FOOD_CATEGORIES, UNCATEGORIZED } from './food';
-import { renderFoodPie } from './pie';
-import {
   dayKey,
-  daysInRange,
-  daysToUnlock,
-  linearTrend,
-  type LoggingFrequency,
   loggingFrequency30d,
-  movingAverage10d,
+  movingAverage,
   movingAverageSeries,
-  trendChange,
-  trendSentence,
-  UNLOCK_PCT,
+  SLOPE_PER_DAYS,
+  slopeSeries,
   weightSeries,
 } from './stats';
+import { type NumberSetting, SETTING_RANGES, slopeMinDays } from './settings';
 import type { UserData } from './types';
 import { pointsIn } from './units';
 import { folderSupported } from './folder-store';
@@ -41,6 +25,16 @@ export const dom = {
   profileControls: el<HTMLDivElement>('profile-controls'),
   accountName: el<HTMLElement>('account-name'),
   logoutBtn: el<HTMLButtonElement>('logout-btn'),
+  gateLogoutBtn: el<HTMLButtonElement>('gate-logout-btn'),
+  settingsBtn: el<HTMLButtonElement>('settings-btn'),
+  settingsPage: el<HTMLElement>('settings-page'),
+  settingsBackBtn: el<HTMLButtonElement>('settings-back-btn'),
+  themePicker: el<HTMLDivElement>('theme-picker'),
+  settingInputs: [...document.querySelectorAll<HTMLInputElement>('#settings-page input[data-setting]')],
+  slopeMinHint: el<HTMLParagraphElement>('slope-min-hint'),
+  settingsError: el<HTMLParagraphElement>('settings-error'),
+  avgLabel: el<HTMLElement>('avg-label'),
+  averageLegendLabel: el<HTMLElement>('average-legend-label'),
   unitToggle: el<HTMLDivElement>('unit-toggle'),
   unitButtons: [...document.querySelectorAll<HTMLButtonElement>('#unit-toggle button[data-unit]')],
   login: el<HTMLElement>('login'),
@@ -65,39 +59,10 @@ export const dom = {
   freqValue: el<HTMLSpanElement>('freq-value'),
   freqNote: el<HTMLSpanElement>('freq-note'),
   freqMeter: el<HTMLDivElement>('freq-meter'),
-  lockNote: el<HTMLParagraphElement>('lock-note'),
-  foodExerciseCards: el<HTMLDivElement>('food-exercise-cards'),
-  foodForm: el<HTMLFormElement>('food-form'),
-  foodInput: el<HTMLInputElement>('food-input'),
-  foodCategory: el<HTMLSelectElement>('food-category'),
-  foodVizCard: el<HTMLElement>('food-viz-card'),
-  foodRangeStart: el<HTMLInputElement>('food-range-start'),
-  foodRangeEnd: el<HTMLInputElement>('food-range-end'),
-  foodPie: el<HTMLDivElement>('food-pie'),
-  foodPieDetail: el<HTMLParagraphElement>('food-pie-detail'),
-  foodTableSummary: el<HTMLElement>('food-table-summary'),
-  foodTableBody: el<HTMLTableSectionElement>('food-table-body'),
-  foodEmpty: el<HTMLParagraphElement>('food-empty'),
-  foodList: el<HTMLDivElement>('food-list'),
-  exportBtn: el<HTMLButtonElement>('export-btn'),
-  exerciseForm: el<HTMLFormElement>('exercise-form'),
-  exerciseName: el<HTMLInputElement>('exercise-name'),
-  exerciseCategory: el<HTMLSelectElement>('exercise-category'),
-  exerciseMinutes: el<HTMLInputElement>('exercise-minutes'),
-  exerciseEmpty: el<HTMLParagraphElement>('exercise-empty'),
-  exerciseList: el<HTMLDivElement>('exercise-list'),
-  exerciseCard: el<HTMLElement>('exercise-card'),
-  exerciseRangeStart: el<HTMLInputElement>('exercise-range-start'),
-  exerciseRangeEnd: el<HTMLInputElement>('exercise-range-end'),
-  exerciseTabs: [...document.querySelectorAll<HTMLButtonElement>('#exercise-tabs [role="tab"]')],
-  exercisePanel: el<HTMLDivElement>('exercise-panel'),
-  exerciseCaption: el<HTMLParagraphElement>('exercise-caption'),
-  exerciseSummary: el<HTMLDivElement>('exercise-summary'),
-  exerciseChart: el<HTMLDivElement>('exercise-chart'),
-  exerciseTableSummary: el<HTMLElement>('exercise-table-summary'),
-  exerciseTableBody: el<HTMLTableSectionElement>('exercise-table-body'),
+  downloadBtn: el<HTMLButtonElement>('download-btn'),
+  uploadBtn: el<HTMLButtonElement>('upload-btn'),
+  uploadInput: el<HTMLInputElement>('upload-input'),
   folderStatus: el<HTMLParagraphElement>('folder-status'),
-  editDataBtn: el<HTMLButtonElement>('edit-data-btn'),
   folderActions: el<HTMLDivElement>('folder-actions'),
   chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
   reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
@@ -116,35 +81,20 @@ export const dom = {
   overrideWeight: el<HTMLInputElement>('override-weight'),
   overrideUnit: el<HTMLSpanElement>('override-unit'),
   overrideCurrent: el<HTMLParagraphElement>('override-current'),
-  editDialog: el<HTMLDialogElement>('edit-dialog'),
-  editWhere: el<HTMLParagraphElement>('edit-where'),
-  editFiles: el<HTMLUListElement>('edit-files'),
-  editHow: el<HTMLParagraphElement>('edit-how'),
   confirmDialog: el<HTMLDialogElement>('confirm-dialog'),
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
   confirmOk: el<HTMLButtonElement>('confirm-ok'),
   toast: el<HTMLParagraphElement>('toast'),
-  rangeStart: el<HTMLInputElement>('range-start'),
-  rangeEnd: el<HTMLInputElement>('range-end'),
+  rangeButtons: [...document.querySelectorAll<HTMLButtonElement>('#charts-card button[data-range]')],
   chartsCard: el<HTMLElement>('charts-card'),
   chartFigure: el<HTMLElement>('chart-figure'),
-  chartTitle: el<HTMLElement>('chart-title'),
-  trendSummary: el<HTMLParagraphElement>('trend-summary'),
   chartHost: el<HTMLDivElement>('chart-host'),
-  chartTableValue: el<HTMLTableCellElement>('chart-table-value'),
-  chartTableAverage: el<HTMLTableCellElement>('chart-table-average'),
-  chartTableSummary: el<HTMLElement>('chart-table-summary'),
-  chartTableBody: el<HTMLTableSectionElement>('chart-table-body'),
+  chartTabs: [...document.querySelectorAll<HTMLButtonElement>('#charts-card [role="tab"]')],
+  weightLegend: el<HTMLDivElement>('weight-legend'),
+  slopeLegend: el<HTMLDivElement>('slope-legend'),
 };
 
-const dateFormat = new Intl.DateTimeFormat(undefined, {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-});
 
 export const formatWeight = (w: number) => w.toFixed(1);
 
@@ -175,92 +125,54 @@ export function showFormError(form: HTMLElement, message: string | null): void {
   line.hidden = message === null;
 }
 
-export function renderUser(user: UserData | null, now: number): void {
+/** Which page a logged-in user sees: the tracker, or Settings. */
+export type Page = 'tracker' | 'settings';
+
+export function renderUser(user: UserData | null, now: number, page: Page = 'tracker'): void {
   dom.login.hidden = user !== null;
-  dom.tracker.hidden = user === null;
+  dom.tracker.hidden = user === null || page !== 'tracker';
+  dom.settingsPage.hidden = user === null || page !== 'settings';
+  dom.settingsBtn.hidden = page === 'settings';
   if (!user) return;
+  renderSettings(user);
 
   dom.unitLabel.textContent = user.unit;
-  for (const btn of dom.unitButtons) btn.setAttribute('aria-pressed', String(btn.dataset.unit === user.unit));
 
-  // Everything on the page reads the weight column for the chosen unit.
-  const points = pointsIn(user.entries, user.unit);
-  const avg = movingAverage10d(points, now);
+  // Weights are stored in the profile's unit, so they're shown as they are.
+  const points = pointsIn(user.entries);
+  const days = user.settings.averageDays;
+  const avg = movingAverage(points, now, days);
+  dom.avgLabel.textContent = `${days}-day average`;
+  dom.averageLegendLabel.textContent = `${days}-day average`;
   dom.avgValue.textContent = avg === null ? '—' : `${formatWeight(avg)} ${user.unit}`;
-  dom.avgNote.textContent = avg === null ? 'No entries in the last 10 days' : '';
+  dom.avgNote.textContent = avg === null ? `No entries in the last ${days === 1 ? 'day' : `${days} days`}` : '';
 
   const freq = loggingFrequency30d(points, now);
   dom.freqValue.textContent = `${Math.round(freq.pct)}%`;
   dom.freqNote.textContent = `${freq.daysLogged} of the last ${freq.totalDays} days had an entry`;
   dom.freqMeter.style.width = `${freq.pct}%`;
   dom.freqMeter.parentElement?.setAttribute('aria-label', `${Math.round(freq.pct)}% of days logged`);
-  renderLock(freq);
-
-  renderFoods(user, now);
-  renderExercises(user, now);
 }
 
-/**
- * Food and exercise stay greyed out and unusable (inert) until UNLOCK_PCT of the last 30 days have a
- * weigh-in; the note above them says how far along the user is.
- */
-function renderLock(freq: LoggingFrequency): void {
-  const missing = daysToUnlock(freq);
-  const locked = missing > 0;
-  dom.foodExerciseCards.inert = locked;
-  dom.foodExerciseCards.classList.toggle('is-locked', locked);
-  dom.lockNote.hidden = !locked;
-  if (!locked) return;
-  const bold = (text: string) => {
-    const strong = document.createElement('strong');
-    strong.textContent = text;
-    return strong;
-  };
-  dom.lockNote.replaceChildren(
-    `🔒 Food and exercise unlock when you've logged your weight on ${UNLOCK_PCT}% of the last ${freq.totalDays} days. You're at `,
-    bold(`${Math.round(freq.pct)}%`),
-    ` (${freq.daysLogged} of ${freq.totalDays} days). Log your weight on `,
-    bold(String(missing)),
-    ` more ${missing === 1 ? 'day' : 'days'} to unlock.`,
-  );
-}
-
-/** Most rows the weight and food data tables show; older entries are reached by narrowing the date range. */
-export const TABLE_ROW_LIMIT = 100;
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-
-/** Below the food log: only what was eaten today, newest first. Older entries are in the breakdown's data table. */
-function renderFoods(user: UserData, now: number): void {
-  const today = dayKey(now);
-  const foods = (user.foods ?? []).filter((f) => dayKey(f.timestamp) === today).sort((a, b) => b.timestamp - a.timestamp);
-  dom.foodEmpty.hidden = foods.length > 0;
-  if (!foods.length) {
-    dom.foodList.replaceChildren();
-    return;
+/** The Settings page's fields, from the profile. A field being edited is left alone. */
+export function renderSettings(user: UserData): void {
+  for (const btn of dom.unitButtons) btn.setAttribute('aria-pressed', String(btn.dataset.unit === user.unit));
+  for (const btn of dom.themePicker.querySelectorAll<HTMLButtonElement>('button[data-palette]')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.palette === user.settings.palette));
   }
-  const section = document.createElement('section');
-  section.className = 'food-day';
-  const heading = document.createElement('h3');
-  heading.textContent = `Today (${foods.length})`;
-  const list = document.createElement('ul');
-  list.append(
-    ...foods.map((f) => {
-      const li = document.createElement('li');
-      const time = document.createElement('span');
-      time.className = 'time';
-      time.textContent = timeFormat.format(f.timestamp);
-      const text = document.createElement('span');
-      text.className = 'text';
-      text.textContent = f.text;
-      const tag = document.createElement('span');
-      tag.className = `food-tag cat-${f.category ?? UNCATEGORIZED.id}`;
-      tag.append(document.createElement('i'), categoryLabel(f.category));
-      li.append(time, text, tag);
-      return li;
-    }),
-  );
-  section.append(heading, list);
-  dom.foodList.replaceChildren(section);
+  for (const input of dom.settingInputs) {
+    const key = input.dataset.setting as NumberSetting;
+    input.min = String(SETTING_RANGES[key].min);
+    input.max = String(SETTING_RANGES[key].max);
+    if (document.activeElement !== input) input.value = String(user.settings[key]);
+  }
+  dom.slopeMinHint.textContent = `A slope is shown once ${slopeMinDays(user.settings)} of the ${user.settings.slopeDays} days have a weigh-in.`;
+}
+
+/** Shows (or with null, clears) the error line on the Settings page. */
+export function showSettingsError(message: string | null): void {
+  dom.settingsError.textContent = message ?? '';
+  dom.settingsError.hidden = message === null;
 }
 
 let toastTimer: number | undefined;
@@ -272,80 +184,76 @@ export function showToast(message: string): void {
 }
 
 const dayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-const shortDayFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
-/** Noon on the day of `timestamp`: where a whole-day value (the 10-day average) is plotted. */
+/** Noon on the day of `timestamp`: where a whole-day value (the trailing average) is plotted. */
 const middayOf = (timestamp: number) => new Date(timestamp).setHours(12, 0, 0, 0);
 
-/**
- * Draws weight entries, the 10-day average and a straight trend line (least squares through the range's
- * entries) on one chart for local days `startDay`..`endDay`, says above it how much the trend lost or
- * gained, and fills the data table (one row per entry, newest first, with that day's average).
- */
+/** Draws the daily weights and the trailing average (days from Settings) on one chart for local days `startDay`..`endDay`. */
 export function renderChart(user: UserData, startDay: number, endDay: number): void {
-  const points = pointsIn(user.entries, user.unit);
+  const points = pointsIn(user.entries);
   const weights = weightSeries(points, startDay, endDay);
   // The average is only known up to today, so a range ending in the future doesn't draw a flat line into it.
   const now = Date.now();
-  const averages = movingAverageSeries(points, startDay, endDay)
+  const averages = movingAverageSeries(points, startDay, endDay, user.settings.averageDays)
     .filter((p) => p.x <= now)
     .map((p) => ({ ...p, x: middayOf(p.x) }));
-  const averageByDay = new Map(averages.map((p) => [dayKey(p.x), p.y]));
 
   const from = new Date(startDay).setHours(0, 0, 0, 0);
   const to = new Date(endDay).setHours(23, 59, 59, 999);
 
   dom.chartFigure.hidden = false;
-  dom.chartTitle.textContent = `Weight (${user.unit}), ${shortDayFormat.format(from)} – ${shortDayFormat.format(to)}`;
-
-  // The trend line is drawn through the same times as the entries, so hovering an entry shows its trend value.
-  const logged = weights.filter((p): p is { x: number; y: number; id?: string } => p.y !== null);
-  const trend = linearTrend(logged);
-  const change = trendChange(trend, logged);
-  // The numbers (amount and days) are shown in bold.
-  dom.trendSummary.replaceChildren(
-    ...trendSentence(change, daysInRange(from, to), user.unit, dayKey(to) === dayKey(now))
-      .split(/(\d+)/)
-      .map((part, i) => {
-        if (i % 2 === 0) return part;
-        const strong = document.createElement('strong');
-        strong.textContent = part;
-        return strong;
-      }),
-  );
-
   const series: ChartSeries[] = [
-    { label: 'Weight', points: weights, className: 'series-weight', dots: true, smooth: false },
-    { label: '10-day avg', points: averages, className: 'series-average', dots: false, smooth: true },
+    { label: 'Daily', points: weights, className: 'series-weight', dots: false, smooth: false },
+    { label: `${user.settings.averageDays}-day avg`, points: averages, className: 'series-average', dots: false, smooth: true },
   ];
-  if (trend) {
-    const points = logged.map((p) => ({ x: p.x, y: trend.at(p.x) }));
-    series.push({ label: 'Trend', points, className: 'series-trend', dots: false, smooth: false });
-  }
   renderLineChart(dom.chartHost, series, from, to, {
     unit: user.unit,
-    formatX: (x, s) => (s.dots ? dateFormat.format(x) : dayFormat.format(x)),
+    formatX: (x) => dayFormat.format(x),
   });
+}
 
-  dom.chartTableValue.textContent = `Weight (${user.unit})`;
-  dom.chartTableAverage.textContent = `10-day avg (${user.unit})`;
-  const allRows = [...logged].reverse();
-  const rows = allRows.slice(0, TABLE_ROW_LIMIT);
-  dom.chartTableSummary.textContent = tableSummary(rows.length, allRows.length);
-  dom.chartTableBody.replaceChildren(
-    ...rows.map((p) => {
-      const tr = document.createElement('tr');
-      const date = document.createElement('td');
-      date.textContent = dateFormat.format(p.x);
-      const value = document.createElement('td');
-      value.textContent = formatWeight(p.y);
-      const avg = document.createElement('td');
-      const dayAvg = averageByDay.get(dayKey(p.x));
-      avg.textContent = dayAvg == null ? '—' : formatWeight(dayAvg);
-      tr.append(date, value, avg);
-      return tr;
-    }),
-  );
+/** Which chart the weight card shows: weights and the trailing average, or the 30-day pace. */
+export type ChartView = 'weight' | 'slope';
+
+/** Selects the Weight or Slope tab and shows that view's legend; the caller then draws the chart. */
+export function selectChartView(view: ChartView, focus = false): void {
+  for (const tab of dom.chartTabs) {
+    const selected = tab.dataset.view === view;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected) {
+      dom.chartFigure.setAttribute('aria-labelledby', tab.id);
+      if (focus) tab.focus();
+    }
+  }
+  dom.weightLegend.hidden = view !== 'weight';
+  dom.slopeLegend.hidden = view !== 'slope';
+}
+
+/** "−2.3" / "+0.4": a pace with its sign, so gaining and losing read at a glance. */
+const signed = (n: number) => {
+  const r = Math.round(n * 10) / 10;
+  return r === 0 ? '0.0' : `${r > 0 ? '+' : '−'}${Math.abs(r).toFixed(1)}`;
+};
+
+/**
+ * Draws the 30-day pace (see slopeSeries in stats.ts) for each weigh-in between local days `startDay` and
+ * `endDay`, with a line at 0: above it is gaining, below it losing.
+ */
+export function renderSlopeChart(user: UserData, startDay: number, endDay: number): void {
+  const windowDays = user.settings.slopeDays;
+  const minDays = slopeMinDays(user.settings);
+  const points = slopeSeries(pointsIn(user.entries), startDay, endDay, { windowDays, minDays });
+  const from = new Date(startDay).setHours(0, 0, 0, 0);
+  const to = new Date(endDay).setHours(23, 59, 59, 999);
+  dom.chartFigure.hidden = false;
+  renderLineChart(dom.chartHost, [{ label: '30-day pace', points, className: 'series-slope', dots: false, smooth: false }], from, to, {
+    unit: user.unit,
+    formatX: (x) => dayFormat.format(x),
+    formatY: (y) => `${signed(y)} ${user.unit} / ${SLOPE_PER_DAYS} days`,
+    zeroLine: true,
+    emptyText: `Not enough weigh-ins yet: the slope needs entries on at least ${minDays} of the previous ${windowDays} days.`,
+  });
 }
 
 
@@ -447,6 +355,8 @@ export function renderGate(status: UserdataStatus, path: string | null, loggedIn
     };
   }
   dom.folderGate.hidden = gate === null;
+  // Log out is on the Settings page, which the gate hides, so the gate offers it too.
+  dom.gateLogoutBtn.hidden = !loggedIn;
   if (gate) {
     dom.folderGateTitle.textContent = gate.title;
     dom.folderGateText.textContent = gate.text;
@@ -461,8 +371,8 @@ export function renderGate(status: UserdataStatus, path: string | null, loggedIn
 
 const overrideDayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-export function formatEntry(weight: number, timestamp: number, unit: string): string {
-  return `${formatWeight(weight)} ${unit} at ${timeFormat.format(timestamp)}`;
+export function formatEntry(weight: number, unit: string): string {
+  return `${formatWeight(weight)} ${unit}`;
 }
 
 /** The "Correct a weight" section: unit label and what's logged on the chosen date. */
@@ -472,10 +382,9 @@ export function renderOverride(user: UserData, day: number | null): void {
   if (day === null) {
     dom.overrideCurrent.textContent = '';
   } else {
-    const key = dayKey(day);
-    const onDay = user.entries.filter((e) => dayKey(e.timestamp) === key).sort((a, b) => a.timestamp - b.timestamp);
-    dom.overrideCurrent.textContent = onDay.length
-      ? `Logged on ${overrideDayFormat.format(day)}: ${onDay.map((e) => formatEntry(e[user.unit], e.timestamp, user.unit)).join(', ')}`
+    const logged = user.entries.find((e) => e.date === dayKey(day));
+    dom.overrideCurrent.textContent = logged
+      ? `Logged on ${overrideDayFormat.format(day)}: ${formatEntry(logged.weight, user.unit)}`
       : `Nothing logged on ${overrideDayFormat.format(day)}. Saving will add an entry.`;
   }
 }
@@ -514,205 +423,3 @@ export function confirmChange(opts: { title: string; message: string; lines?: st
     dom.confirmDialog.addEventListener('close', () => resolve(dom.confirmDialog.returnValue === 'confirm'), { once: true });
   });
 }
-
-/** Where a profile's files are, for the "Edit data" dialog. A file with a `url` opens in a new tab. */
-export interface DataFiles {
-  where: string;
-  files: { label: string; name: string; url?: string }[];
-  how: string;
-}
-
-/** Shows where to edit the data files. Resolves true when the user is done editing and wants a reload. */
-export function showDataFiles(info: DataFiles): Promise<boolean> {
-  dom.editWhere.textContent = info.where;
-  dom.editFiles.replaceChildren(
-    ...info.files.map((f) => {
-      const li = document.createElement('li');
-      li.append(`${f.label}: `);
-      if (f.url) {
-        const link = document.createElement('a');
-        link.href = f.url;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = f.name;
-        li.append(link);
-      } else {
-        const code = document.createElement('code');
-        code.textContent = f.name;
-        li.append(code);
-      }
-      return li;
-    }),
-  );
-  dom.editHow.textContent = info.how;
-  dom.editDialog.returnValue = '';
-  dom.editDialog.showModal();
-  return new Promise((resolve) => {
-    dom.editDialog.addEventListener('close', () => resolve(dom.editDialog.returnValue === 'reload'), { once: true });
-  });
-}
-
-/** The "Food breakdown" pie for local days `startDay`..`endDay`, counted by number of entries. */
-export function renderFoodBreakdown(user: UserData, startDay: number, endDay: number): void {
-  const { total, counts } = categoryCounts(user.foods ?? [], startDay, endDay);
-  renderFoodPie(dom.foodPie, dom.foodPieDetail, counts, total);
-
-  // The entries behind the pie, newest first, for "Show data table".
-  const from = new Date(startDay).setHours(0, 0, 0, 0);
-  const to = new Date(endDay).setHours(23, 59, 59, 999);
-  const allRows = (user.foods ?? []).filter((f) => f.timestamp >= from && f.timestamp <= to).sort((a, b) => b.timestamp - a.timestamp);
-  const rows = allRows.slice(0, TABLE_ROW_LIMIT);
-  dom.foodTableSummary.textContent = tableSummary(rows.length, allRows.length);
-  dom.foodTableBody.replaceChildren(
-    ...rows.map((f) => {
-      const tr = document.createElement('tr');
-      const date = document.createElement('td');
-      date.textContent = dateFormat.format(f.timestamp);
-      const food = document.createElement('td');
-      food.textContent = f.text;
-      // Category is editable here: a dropdown per row (see the change handler in main.ts).
-      const category = document.createElement('td');
-      const tag = document.createElement('span');
-      tag.className = `food-tag cat-${f.category ?? UNCATEGORIZED.id}`;
-      const select = document.createElement('select');
-      select.className = 'food-category-select';
-      select.dataset.foodId = f.id;
-      select.setAttribute('aria-label', `Category for ${f.text}, ${date.textContent}`);
-      if (!f.category) select.append(new Option('Add category…', '', true, true));
-      select.append(...FOOD_CATEGORIES.map((c) => new Option(c.label, c.id, false, c.id === f.category)));
-      if (!f.category) select.options[0].disabled = true;
-      tag.append(document.createElement('i'), select);
-      category.append(tag);
-      tr.append(date, food, category);
-      return tr;
-    }),
-  );
-}
-
-/** "Show data table (42 entries)", or "(latest 100 of 210 entries)" when the table is capped. */
-export function tableSummary(shown: number, total: number): string {
-  const noun = total === 1 ? 'entry' : 'entries';
-  return shown < total ? `Show data table (latest ${shown} of ${total} ${noun})` : `Show data table (${total} ${noun})`;
-}
-
-/** Below the exercise log: only today's sessions, newest first, with the day's total. */
-function renderExercises(user: UserData, now: number): void {
-  const today = dayKey(now);
-  const list = (user.exercises ?? []).filter((e) => dayKey(e.timestamp) === today).sort((a, b) => b.timestamp - a.timestamp);
-  dom.exerciseEmpty.hidden = list.length > 0;
-  if (!list.length) {
-    dom.exerciseList.replaceChildren();
-    return;
-  }
-  const section = document.createElement('section');
-  section.className = 'food-day';
-  const heading = document.createElement('h3');
-  heading.textContent = `Today (${list.length}) · ${formatMinutes(list.reduce((sum, e) => sum + e.minutes, 0))}`;
-  const ul = document.createElement('ul');
-  ul.append(
-    ...list.map((e) => {
-      const li = document.createElement('li');
-      li.className = 'exercise-row';
-      const time = document.createElement('span');
-      time.className = 'time';
-      time.textContent = timeFormat.format(e.timestamp);
-      const text = document.createElement('span');
-      text.className = 'text';
-      text.textContent = e.name;
-      const tag = document.createElement('span');
-      tag.className = `food-tag ex-${e.category}`;
-      tag.append(document.createElement('i'), exerciseCategoryLabel(e.category));
-      const minutes = document.createElement('span');
-      minutes.className = 'exercise-duration';
-      minutes.textContent = formatMinutes(e.minutes);
-      li.append(time, text, tag, minutes);
-      return li;
-    }),
-  );
-  section.append(heading, ul);
-  dom.exerciseList.replaceChildren(section);
-}
-
-export type ExerciseTab = 'summary' | ExerciseCategoryId;
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const perDay = (minutes: number) => `${Math.round(minutes)} min/day`;
-
-/** The Exercise card: the selected tab (summary tiles or one category's bars) and the data table, for one range. */
-export function renderExerciseBreakdown(user: UserData, startDay: number, endDay: number, tab: ExerciseTab): void {
-  const exercises = user.exercises ?? [];
-  const summary = exerciseSummary(exercises, startDay, endDay);
-
-  dom.exerciseTabs.forEach((b) => {
-    const selected = b.dataset.tab === tab;
-    b.setAttribute('aria-selected', String(selected));
-    b.tabIndex = selected ? 0 : -1;
-    if (selected) dom.exercisePanel.setAttribute('aria-labelledby', b.id);
-  });
-  dom.exerciseSummary.hidden = tab !== 'summary';
-  dom.exerciseChart.hidden = tab === 'summary';
-
-  if (tab === 'summary') {
-    dom.exerciseCaption.textContent = `All exercise: ${formatMinutes(summary.minutes)} · ${plural(summary.sessions, 'session')} over ${plural(summary.days, 'day')}`;
-    dom.exerciseSummary.replaceChildren(
-      ...summary.categories.map((c) => {
-        const tile = document.createElement('div');
-        tile.className = `exercise-tile ex-${c.id}`;
-        const name = document.createElement('span');
-        name.className = 'exercise-tile-name';
-        name.append(document.createElement('i'), c.label);
-        const total = document.createElement('strong');
-        total.className = 'exercise-tile-total';
-        total.textContent = formatMinutes(c.minutes);
-        const detail = document.createElement('span');
-        detail.className = 'muted small';
-        detail.textContent = `${plural(c.sessions, 'session')} · ${perDay(c.avgPerDay)}`;
-        tile.append(name, total, detail);
-        return tile;
-      }),
-    );
-  } else {
-    const c = summary.categories.find((x) => x.id === tab)!;
-    dom.exerciseCaption.textContent = `${c.label}: ${plural(c.sessions, 'session')} · ${formatMinutes(c.minutes)} · ${perDay(c.avgPerDay)} avg`;
-    renderBarChart(
-      dom.exerciseChart,
-      dailyMinutes(exercises, tab, startDay, endDay),
-      `ex-${tab}`,
-      `No ${c.label.toLowerCase()} logged in this range.`,
-    );
-  }
-
-  // The sessions behind the selected tab (all categories on Summary), newest first, for "Show data table".
-  const allRows = exercisesIn(exercises, startDay, endDay)
-    .filter((e) => tab === 'summary' || e.category === tab)
-    .sort((a, b) => b.timestamp - a.timestamp);
-  const rows = allRows.slice(0, TABLE_ROW_LIMIT);
-  dom.exerciseTableSummary.textContent = tableSummary(rows.length, allRows.length);
-  dom.exerciseTableBody.replaceChildren(
-    ...rows.map((e) => {
-      const tr = document.createElement('tr');
-      const date = document.createElement('td');
-      date.textContent = dateFormat.format(e.timestamp);
-      const name = document.createElement('td');
-      name.textContent = e.name;
-      const category = document.createElement('td');
-      const tag = document.createElement('span');
-      tag.className = `food-tag ex-${e.category}`;
-      // Category is editable here: a dropdown per row (see the change handler in main.ts).
-      const select = document.createElement('select');
-      select.className = 'food-category-select exercise-category-select';
-      select.dataset.exerciseId = e.id;
-      select.setAttribute('aria-label', `Category for ${e.name}, ${date.textContent}`);
-      select.append(...EXERCISE_CATEGORIES.map((c) => new Option(c.label, c.id, false, c.id === e.category)));
-      tag.append(document.createElement('i'), select);
-      category.append(tag);
-      const minutes = document.createElement('td');
-      minutes.className = 'num';
-      minutes.textContent = String(e.minutes);
-      tr.append(date, name, category, minutes);
-      return tr;
-    }),
-  );
-}
-
-export const EXERCISE_TABS: ExerciseTab[] = ['summary', ...EXERCISE_CATEGORIES.map((c) => c.id)];

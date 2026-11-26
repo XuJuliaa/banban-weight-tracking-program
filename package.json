@@ -8,12 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "sample-data": "node scripts/generate-sample-data.mjs",
-    "sample-food": "node scripts/generate-food-data.mts",
-    "sample-exercise": "node scripts/generate-exercise-data.mts"
+    "sample-data": "node scripts/generate-sample-data.mjs"
   },
   "dependencies": {
-    "fflate": "0.8.3",
     "idb-keyval": "^6.2.1"
   },
   "devDependencies": {
