@@ -4,12 +4,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { listProfiles, migrate, readProfile, removeProfile, upgradeWeightFiles, validateUser, writeProfile } from './userdata-files';
 
-const at = (h: number, m = 0) => new Date(2026, 9, 11, h, m).getTime();
 const juju = {
   name: 'Juju',
   unit: 'kg' as const,
-  entries: [{ id: 'e1', timestamp: at(7, 30), kg: 70.2, lb: 154.76, entered: 'kg' as const }],
-  foods: [{ id: 'f1', timestamp: at(8), text: 'Oatmeal, berries', category: 'grains' as const }],
+  entries: [{ id: 'e1', date: '2026-10-11', weight: 70.2 }],
 };
 
 let dir: string;
@@ -20,75 +18,67 @@ afterEach(async () => {
   await rm(join(dir, '..'), { recursive: true, force: true });
 });
 
-describe('userdata files', () => {
-  it('writes <slug>-exercise.csv when the record has exercises, and reads it back', async () => {
-    const exercises = [{ id: 'x1', timestamp: at(6, 45), name: 'Morning run', category: 'cardio' as const, minutes: 30 }];
-    await writeProfile(dir, { ...juju, exercises });
-    expect(await readFile(join(dir, 'juju-exercise.csv'), 'utf8')).toBe('timestamp,activity,category,minutes\n2026-10-11T06:45:00,Morning run,Cardio,30\n');
-    const data = await readProfile(dir, 'juju');
-    expect(data?.exercises.map((x) => [x.name, x.category, x.minutes])).toEqual([['Morning run', 'cardio', 30]]);
+/** Profile list rows without their settings, which have their own tests. */
+const withoutSettings = <T extends { settings?: unknown }>(rows: T[]) => rows.map(({ settings: _settings, ...rest }) => rest);
 
-    // A record without an exercise list (from before exercise logging) leaves the file alone.
+describe('userdata files', () => {
+  it('deletes a profile along with food and exercise files left by older versions', async () => {
     await writeProfile(dir, juju);
-    expect((await readProfile(dir, 'juju'))?.exercises).toHaveLength(1);
+    await writeFile(join(dir, 'juju-food.csv'), 'timestamp,food\n');
+    await writeFile(join(dir, 'juju-exercise.csv'), 'timestamp,activity,category,minutes\n');
     await removeProfile(dir, 'juju');
     expect(await readdir(dir)).toEqual(['profiles.csv']);
   });
 
-  it('validates exercise entries', () => {
-    const ok = { id: 'x', timestamp: 1, name: 'Run', category: 'cardio', minutes: 30 };
-    expect(validateUser({ ...juju, exercises: [ok] }, 'juju')).toBeTruthy();
-    expect(() => validateUser({ ...juju, exercises: [{ ...ok, category: 'dance' }] }, 'juju')).toThrow(/Invalid/);
-    expect(() => validateUser({ ...juju, exercises: [{ ...ok, minutes: 0 }] }, 'juju')).toThrow(/Invalid/);
-    expect(() => validateUser({ ...juju, exercises: [{ ...ok, name: ' ' }] }, 'juju')).toThrow(/Invalid/);
-  });
-
-  it('writes <slug>-weight.csv, <slug>-food.csv, and a profiles.csv row', async () => {
+  it('writes <slug>-weight.csv and a profiles.csv row', async () => {
     expect(await writeProfile(dir, juju)).toBe('juju');
-    expect((await readdir(dir)).sort()).toEqual(['juju-food.csv', 'juju-weight.csv', 'profiles.csv']);
-    expect(await readFile(join(dir, 'juju-weight.csv'), 'utf8')).toBe('timestamp,weight_kg,weight_lb,entered_unit\n2026-10-11T07:30:00,70.2,154.76,kg\n');
-    expect(await readFile(join(dir, 'juju-food.csv'), 'utf8')).toBe('timestamp,food,category\n2026-10-11T08:00:00,"Oatmeal, berries",Grains & starches\n');
-    expect(await readFile(join(dir, 'profiles.csv'), 'utf8')).toBe('name,unit\nJuju,kg\n');
+    expect((await readdir(dir)).sort()).toEqual(['juju-weight.csv', 'profiles.csv']);
+    expect(await readFile(join(dir, 'juju-weight.csv'), 'utf8')).toBe('date,weight_kg\n2026-10-11,70.2\n');
+    expect(await readFile(join(dir, 'profiles.csv'), 'utf8')).toBe('name,unit,palette,average_days,slope_days,slope_min_pct\nJuju,kg,coral,10,60,30\n');
   });
 
   it('reads a profile back by name, from any browser', async () => {
     await writeProfile(dir, juju);
     const data = await readProfile(dir, 'juju');
     expect(data).toMatchObject({ slug: 'juju', name: 'Juju', unit: 'kg' });
-    expect(data?.entries.map(({ id: _id, ...rest }) => rest)).toEqual([{ timestamp: at(7, 30), kg: 70.2, lb: 154.76, entered: 'kg' }]);
-    expect(data?.foods.map((f) => [f.text, f.category])).toEqual([['Oatmeal, berries', 'grains']]);
+    expect(data?.entries.map(({ id: _id, ...rest }) => rest)).toEqual([{ date: '2026-10-11', weight: 70.2 }]);
     expect(await readProfile(dir, 'nobody')).toBeNull();
   });
 
   it('treats names that differ only in case or punctuation as the same profile', async () => {
     await writeProfile(dir, juju);
     await writeProfile(dir, { ...juju, name: 'JUJU', entries: [] });
-    expect(await listProfiles(dir)).toEqual([{ slug: 'juju', name: 'JUJU', unit: 'kg' }]);
+    expect(withoutSettings(await listProfiles(dir))).toEqual([{ slug: 'juju', name: 'JUJU', unit: 'kg' }]);
   });
 
-  it('reads weight files still in the older single-weight format', async () => {
+  it('reads weight files still in the older single-weight format, as dates in the file\'s unit', async () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'old-weight.csv'), 'timestamp,weight,unit\n2026-10-11T07:00:00,154,lb\n');
     const data = await readProfile(dir, 'old');
     expect(data?.unit).toBe('lb');
-    expect(data?.entries.map(({ id: _id, ...rest }) => rest)).toEqual([{ timestamp: at(7), kg: 69.85, lb: 154, entered: 'lb' }]);
+    expect(data?.entries.map(({ id: _id, ...rest }) => rest)).toEqual([{ date: '2026-10-11', weight: 154 }]);
   });
 
-  it('upgrades older weight files to kg + lb columns once, keeping the original', async () => {
+  it('cleans up older or duplicated weight files on start, once, keeping the originals', async () => {
+    const old = 'timestamp,weight_kg,weight_lb,entered_unit\n2026-10-11T07:00:00,70,154.32,kg\n2026-10-11T20:00:00,70.5,155.43,kg\n';
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'profiles.csv'), 'name,unit\nJuju,kg\n');
-    await writeFile(join(dir, 'juju-weight.csv'), 'timestamp,weight,unit\n2026-10-11T07:00:00,70,kg\n');
+    await writeFile(join(dir, 'profiles.csv'), 'name,unit\nJuju,lb\n');
+    await writeFile(join(dir, 'juju-weight.csv'), old);
     await writeFile(join(dir, 'juju-food.csv'), 'timestamp,food\n');
     expect(await upgradeWeightFiles(dir)).toEqual(['juju']);
-    expect(await readFile(join(dir, 'juju-weight.csv'), 'utf8')).toBe('timestamp,weight_kg,weight_lb,entered_unit\n2026-10-11T07:00:00,70,154.32,kg\n');
-    expect(await readFile(join(dir, '.migrated', 'juju-weight.v1.csv'), 'utf8')).toBe('timestamp,weight,unit\n2026-10-11T07:00:00,70,kg\n');
+    // The profile is in lb, so the lb column is used; the two weigh-ins on Oct 11 are averaged.
+    expect(await readFile(join(dir, 'juju-weight.csv'), 'utf8')).toBe('date,weight_lb\n2026-10-11,154.88\n');
+    expect(await readFile(join(dir, 'juju-weight.backup.csv'), 'utf8')).toBe(old);
+    const kept = await readdir(join(dir, '.migrated'));
+    expect(kept).toHaveLength(1);
+    expect(await readFile(join(dir, '.migrated', kept[0]), 'utf8')).toBe(old);
     expect(await upgradeWeightFiles(dir)).toEqual([]);
   });
 
   it('lists profiles from profiles.csv plus weight files without a row', async () => {
     await writeProfile(dir, juju);
     await writeFile(join(dir, 'ana-weight.csv'), 'timestamp,weight,unit\n2026-10-11T07:00:00,150,lb\n');
-    expect(await listProfiles(dir)).toEqual([
+    expect(withoutSettings(await listProfiles(dir))).toEqual([
       { slug: 'juju', name: 'Juju', unit: 'kg' },
       { slug: 'ana', name: 'Ana', unit: 'lb' },
     ]);
@@ -98,8 +88,8 @@ describe('userdata files', () => {
     await writeProfile(dir, juju);
     await writeProfile(dir, { ...juju, name: 'Ana' });
     await removeProfile(dir, 'juju');
-    expect((await readdir(dir)).sort()).toEqual(['ana-food.csv', 'ana-weight.csv', 'profiles.csv']);
-    expect(await listProfiles(dir)).toEqual([{ slug: 'ana', name: 'Ana', unit: 'kg' }]);
+    expect((await readdir(dir)).sort()).toEqual(['ana-weight.csv', 'profiles.csv']);
+    expect(withoutSettings(await listProfiles(dir))).toEqual([{ slug: 'ana', name: 'Ana', unit: 'kg' }]);
   });
 
   it('migrates id-named files once, merging duplicates per name and keeping the originals', async () => {
@@ -114,13 +104,12 @@ describe('userdata files', () => {
 
     expect((await migrate(dir)).sort()).toEqual(['banban', 'juju']);
     expect((await readdir(dir)).sort()).toEqual([
-      '.migrated', 'banban-food.csv', 'banban-weight.csv', 'juju-food.csv', 'juju-weight.csv', 'profiles.csv',
+      '.migrated', 'banban-weight.csv', 'juju-weight.csv', 'profiles.csv',
     ]);
     expect((await readdir(join(dir, '.migrated'))).length).toBe(6);
     const merged = await readProfile(dir, 'juju');
     expect(merged?.entries).toHaveLength(2);
-    expect(merged?.foods.map((f) => f.text)).toEqual(['toast, jam']);
-    expect(await listProfiles(dir)).toEqual([
+    expect(withoutSettings(await listProfiles(dir))).toEqual([
       { slug: 'banban', name: 'Banban', unit: 'kg' },
       { slug: 'juju', name: 'Juju', unit: 'kg' },
     ]);
@@ -133,9 +122,9 @@ describe('userdata files', () => {
 
   it('rejects records whose name doesn\'t match the URL, or with bad entries', () => {
     expect(() => validateUser(juju, 'someone-else')).toThrow(/Invalid/);
-    expect(() => validateUser({ ...juju, entries: [{ timestamp: 'x', kg: 1, lb: 2.2, entered: 'kg' }] }, 'juju')).toThrow(/Invalid/);
-    expect(() => validateUser({ ...juju, entries: [{ timestamp: 1, weight: 70 }] }, 'juju')).toThrow(/Invalid/);
-    expect(() => validateUser({ ...juju, foods: [{ id: 'f', timestamp: 1, text: 'x', category: 'pizza' }] }, 'juju')).toThrow(/Invalid/);
+    expect(() => validateUser({ ...juju, entries: [{ id: 'e', date: 'x', weight: 70 }] }, 'juju')).toThrow(/Invalid/);
+    expect(() => validateUser({ ...juju, entries: [{ id: 'e', timestamp: 1, weight: 70 }] }, 'juju')).toThrow(/Invalid/);
+    expect(() => validateUser({ ...juju, entries: [{ id: 'e', date: '2026-10-11', weight: 0 }] }, 'juju')).toThrow(/Invalid/);
     expect(validateUser(juju, 'juju')).toBe(juju);
   });
 });

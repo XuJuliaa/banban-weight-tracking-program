@@ -1,6 +1,6 @@
 // Adds a small local API to `npm run dev` and `npm run preview`, backed by ./testdata (see userdata-files.ts):
 //   GET    <base>api/userdata          → { dir, profiles: [{ slug, name, unit }] }
-//   GET    <base>api/userdata/<slug>   → { slug, name, unit, entries, foods, exercises } or null
+//   GET    <base>api/userdata/<slug>   → { slug, name, unit, entries } or null
 //   PUT    <base>api/userdata/<slug>   body: the user's JSON record → rewrites their CSV files
 //   DELETE <base>api/userdata/<slug>   removes their CSV files
 // On a static host such as GitHub Pages this API doesn't exist; the app notices and stops calling it.
@@ -54,7 +54,7 @@ export function userdataPlugin(dir: string): Plugin {
         const moved = await migrate(dir);
         if (moved.length) console.log(`[userdata] moved to name-based files: ${moved.join(', ')} (originals in testdata/.migrated/)`);
         const upgraded = await upgradeWeightFiles(dir);
-        if (upgraded.length) console.log(`[userdata] weight files now store kg and lb: ${upgraded.join(', ')} (originals in testdata/.migrated/)`);
+        if (upgraded.length) console.log(`[userdata] weight files cleaned up (one row per date): ${upgraded.join(', ')} (originals in testdata/.migrated/)`);
       } catch (err) {
         console.error('[userdata] migration failed:', err);
       }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseCsvRows, parseExerciseCsv, parseFoodCsv, parseTimestamp, parseWeightCsv, toExerciseCsv, toFoodCsv, toWeightCsv } from './csv';
+import { parseCsvRows, parseTimestamp, parseUpload, parseWeightCsv, toWeightCsv } from './csv';
+import { DEFAULT_SETTINGS } from './settings';
 import type { UserData } from './types';
 
 describe('parseTimestamp', () => {
@@ -31,87 +32,124 @@ describe('parseTimestamp', () => {
 });
 
 describe('parseWeightCsv', () => {
-  const t = (d: number, h = 7, m = 42) => new Date(2026, 7, d, h, m).getTime();
+  const clean = { skipped: [], merged: [], needsCleanup: false };
 
-  it('reads a Google Sheets export: quoted decimal commas and reformatted dates', () => {
-    const csv = 'timestamp,weight_kg,weight_lb,entered_unit\r\n2026-08-13 7:42:00,"72,1",,kg\r\n,,,\r\n';
-    expect(parseWeightCsv(csv, 'kg').entries).toEqual([{ timestamp: t(13), kg: 72.1, lb: expect.closeTo(158.95, 2), entered: 'kg' }]);
+  it('reads the current format: one row per date in the profile\'s unit', () => {
+    const csv = 'date,weight_kg\n2026-08-13,70\n2026-08-14,69.9\n';
+    expect(parseWeightCsv(csv, 'kg')).toEqual({
+      entries: [
+        { date: '2026-08-13', weight: 70 },
+        { date: '2026-08-14', weight: 69.9 },
+      ],
+      fileUnit: 'kg',
+      ...clean,
+    });
   });
 
-  it('requires a header with timestamp and a weight column', () => {
-    expect(() => parseWeightCsv('2026-08-13T07:42:00,72.1\n', 'kg')).toThrow(/header/);
+  it('converts a file in the other unit, rounded to 0.01, and asks for a rewrite', () => {
+    const result = parseWeightCsv('date,weight_lb\n2026-08-13,154.3\n', 'kg');
+    expect(result.entries).toEqual([{ date: '2026-08-13', weight: 69.99 }]);
+    expect(result).toMatchObject({ fileUnit: 'lb', needsCleanup: true });
   });
 
-  it('reads the current format with both units', () => {
-    const csv = 'timestamp,weight_kg,weight_lb,entered_unit\n2026-08-13T07:42:00,70,154.32,kg\n2026-08-14T07:42:00,69.85,154,lb\n';
-    expect(parseWeightCsv(csv, 'kg').entries).toEqual([
-      { timestamp: t(13), kg: 70, lb: 154.32, entered: 'kg' },
-      { timestamp: t(14), kg: 69.85, lb: 154, entered: 'lb' },
+  it('averages rows on the same date into one, rounded to 0.01', () => {
+    const result = parseWeightCsv('date,weight_kg\n2026-08-13,70\n2026-08-14,69\n2026-08-13,70.25\n', 'kg');
+    expect(result.entries).toEqual([
+      { date: '2026-08-13', weight: 70.13 },
+      { date: '2026-08-14', weight: 69 },
     ]);
+    expect(result).toMatchObject({ merged: ['2026-08-13'], needsCleanup: true });
+  });
+
+  it('keeps 2 decimals as they are, and rounds and asks for a rewrite when there are more', () => {
+    expect(parseWeightCsv('date,weight_kg\n2026-08-13,70.04\n', 'kg')).toMatchObject({ entries: [{ date: '2026-08-13', weight: 70.04 }], needsCleanup: false });
+    const result = parseWeightCsv('date,weight_kg\n2026-08-13,70.046\n', 'kg');
+    expect(result.entries).toEqual([{ date: '2026-08-13', weight: 70.05 }]);
+    expect(result.needsCleanup).toBe(true);
+  });
+
+  it('reads a Google Sheets export: quoted decimal commas and blank rows', () => {
+    const csv = 'date,weight_kg\r\n2026-08-13,"72,1"\r\n,\r\n';
+    expect(parseWeightCsv(csv, 'kg')).toMatchObject({ entries: [{ date: '2026-08-13', weight: 72.1 }], needsCleanup: false });
+  });
+
+  it('requires a header with a date and a weight column', () => {
+    expect(() => parseWeightCsv('2026-08-13,72.1\n', 'kg')).toThrow(/header/);
+  });
+
+  it('reads the older format with times and both units, dropping the times', () => {
+    const csv = 'timestamp,weight_kg,weight_lb,entered_unit\n2026-08-13T07:42:00,70,154.32,kg\n2026-08-14T07:42:00,69.85,154,lb\n';
+    expect(parseWeightCsv(csv, 'lb')).toMatchObject({
+      entries: [
+        { date: '2026-08-13', weight: 154.32 },
+        { date: '2026-08-14', weight: 154 },
+      ],
+      fileUnit: 'kg',
+      needsCleanup: true,
+    });
+  });
+
+  it('averages several weigh-ins on one day from the older format', () => {
+    const csv = 'timestamp,weight_kg,weight_lb,entered_unit\n2026-08-13T07:00:00,70,,kg\n2026-08-13T21:00:00,70.5,,kg\n';
+    expect(parseWeightCsv(csv, 'kg')).toMatchObject({ entries: [{ date: '2026-08-13', weight: 70.25 }], merged: ['2026-08-13'] });
   });
 
   it('fills in a blank unit column by converting the other', () => {
     const csv = 'timestamp,weight_kg,weight_lb\n2026-08-13T07:42:00,70,\n2026-08-14T07:42:00,,154.32\n';
     expect(parseWeightCsv(csv, 'kg').entries).toEqual([
-      { timestamp: t(13), kg: 70, lb: 154.32, entered: 'kg' },
-      { timestamp: t(14), kg: 70, lb: 154.32, entered: 'lb' },
+      { date: '2026-08-13', weight: 70 },
+      { date: '2026-08-14', weight: 70 },
     ]);
   });
 
-  it('reads the older single-weight format, in any column order', () => {
+  it('reads the oldest single-weight format, in any column order', () => {
     const csv = 'Unit,Weight,Timestamp\nlb,154.32,2026-08-13T07:42:00\n,70,2026-08-14T07:42:00\nstone,11,2026-08-15T07:42:00\n';
     const result = parseWeightCsv(csv, 'kg');
     expect(result.entries).toEqual([
-      { timestamp: t(13), kg: 70, lb: 154.32, entered: 'lb' },
-      { timestamp: t(14), kg: 70, lb: 154.32, entered: 'kg' },
+      { date: '2026-08-13', weight: 70 },
+      { date: '2026-08-14', weight: 70 },
     ]);
     expect(result.skipped).toEqual([4]);
   });
 
   it('ignores blank lines and reports bad rows by line number', () => {
-    const csv = 'timestamp,weight\r\n2026-08-13T07:42:00,72.1\r\n\r\nnot-a-date,70\r\n2026-08-14T07:40:00,-1\r\n';
+    const csv = 'date,weight_kg\r\n2026-08-13,72.1\r\n\r\nnot-a-date,70\r\n2026-08-14,-1\r\n';
     const result = parseWeightCsv(csv, 'kg');
     expect(result.entries).toHaveLength(1);
     expect(result.skipped).toEqual([4, 5]);
   });
 
-  it('round-trips with toWeightCsv', () => {
+  it('round-trips with toWeightCsv, one row per date, oldest first', () => {
     const user: UserData = {
       version: 1,
       userId: 'u1',
       name: 'Juju',
       unit: 'lb',
+      settings: { ...DEFAULT_SETTINGS },
       entries: [
-        { id: 'b', timestamp: new Date(2026, 7, 14, 7, 5, 9).getTime(), kg: 71.85, lb: 158.4, entered: 'lb' },
-        { id: 'a', timestamp: new Date(2026, 7, 13, 6, 30).getTime(), kg: 72, lb: 158.73, entered: 'kg' },
+        { id: 'b', date: '2026-08-14', weight: 158.4 },
+        { id: 'a', date: '2026-08-13', weight: 158.7 },
       ],
     };
     const csv = toWeightCsv(user);
-    expect(csv.split('\n').slice(0, 2)).toEqual(['timestamp,weight_kg,weight_lb,entered_unit', '2026-08-13T06:30:00,72,158.73,kg']);
-    expect(parseWeightCsv(csv, 'kg').entries).toEqual([...user.entries].reverse().map(({ id: _id, ...rest }) => rest));
-  });
-});
-
-describe('toFoodCsv', () => {
-  it('writes food entries oldest first and quotes text with commas, quotes, or line breaks', () => {
-    const user: UserData = {
-      version: 1,
-      userId: 'u1',
-      name: 'Juju',
-      unit: 'kg',
-      entries: [],
-      foods: [
-        { id: 'b', timestamp: new Date(2026, 9, 11, 12, 30).getTime(), text: 'Salad, "light" dressing\nand tea', category: 'produce' },
-        { id: 'a', timestamp: new Date(2026, 9, 11, 7, 45).getTime(), text: 'Oatmeal' },
+    expect(csv).toBe('date,weight_lb\n2026-08-13,158.7\n2026-08-14,158.4\n');
+    expect(parseWeightCsv(csv, 'lb')).toEqual({
+      entries: [
+        { date: '2026-08-13', weight: 158.7 },
+        { date: '2026-08-14', weight: 158.4 },
       ],
-    };
-    expect(toFoodCsv(user)).toBe(
-      'timestamp,food,category\n2026-10-11T07:45:00,Oatmeal,\n2026-10-11T12:30:00,"Salad, ""light"" dressing\nand tea",Vegetables & fruit\n',
-    );
+      fileUnit: 'lb',
+      ...clean,
+    });
   });
 
-  it('writes just the header for a user without a food log', () => {
-    expect(toFoodCsv({ version: 1, userId: 'u1', name: 'Juju', unit: 'kg', entries: [] })).toBe('timestamp,food,category\n');
+  it('never writes two rows for one date', () => {
+    const entries = [
+      { id: 'a', date: '2026-08-13', weight: 70 },
+      { id: 'b', date: '2026-08-13', weight: 71 },
+    ];
+    expect(toWeightCsv({ unit: 'kg', entries })).toBe('date,weight_kg\n2026-08-13,70.5\n');
+    expect(toWeightCsv({ unit: 'lb', entries: [{ id: 'a', date: '2026-08-13', weight: 155.21 }] })).toBe('date,weight_lb\n2026-08-13,155.21\n');
   });
 });
 
@@ -121,64 +159,57 @@ describe('parseCsvRows', () => {
   });
 });
 
-describe('parseFoodCsv', () => {
-  it('reads back what toFoodCsv writes, including categories', () => {
-    const foods = [
-      { id: 'a', timestamp: new Date(2026, 9, 11, 7, 45).getTime(), text: 'Oatmeal', category: 'grains' as const },
-      { id: 'b', timestamp: new Date(2026, 9, 11, 12, 30).getTime(), text: 'Salad, "light" dressing\nand tea' },
-    ];
-    const csv = toFoodCsv({ version: 1, userId: 'u', name: 'J', unit: 'kg', entries: [], foods });
-    expect(parseFoodCsv(csv)).toEqual(foods.map(({ id: _id, ...rest }) => rest));
+describe('parseUpload', () => {
+  const TODAY = '2026-11-24';
+  const entries = [
+    { id: 'a', date: '2026-11-20', weight: 70.4 },
+    { id: 'b', date: '2026-11-22', weight: 69.85 },
+  ];
+
+  it('takes back a download unchanged', () => {
+    const csv = toWeightCsv({ unit: 'kg', entries });
+    expect(parseUpload(csv, 'kg', TODAY)).toEqual({
+      entries: entries.map(({ id: _id, ...e }) => e),
+      merged: [],
+      fileUnit: 'kg',
+    });
   });
 
-  it('reads older files without a category column, and treats unknown categories as uncategorized', () => {
-    expect(parseFoodCsv('timestamp,food\n2026-10-11T23:21:23,beef brisket\n')).toEqual([
-      { timestamp: new Date(2026, 9, 11, 23, 21, 23).getTime(), text: 'beef brisket' },
-    ]);
-    expect(parseFoodCsv('timestamp,food,category\n2026-10-11T08:00:00,toast,Pastry\n')[0].category).toBeUndefined();
+  it('converts a file in the other unit to the profile\'s', () => {
+    expect(parseUpload('date,weight_lb\n2026-11-20,154.32\n', 'kg', TODAY)).toEqual({
+      entries: [{ date: '2026-11-20', weight: 70 }],
+      merged: [],
+      fileUnit: 'lb',
+    });
   });
 
-  it('skips rows with a bad timestamp or no text', () => {
-    expect(parseFoodCsv('timestamp,food\nnope,toast\n2026-10-11T08:00:00,\n')).toEqual([]);
-  });
-});
-
-describe('exercise CSV', () => {
-  const at = (h: number, m = 0) => new Date(2026, 9, 11, h, m).getTime();
-  const user = {
-    version: 1 as const,
-    userId: 'u',
-    name: 'Juju',
-    unit: 'kg' as const,
-    entries: [],
-    exercises: [
-      { id: '2', timestamp: at(18), name: 'Weights, upper body', category: 'strength' as const, minutes: 40 },
-      { id: '1', timestamp: at(7, 15), name: 'Morning run', category: 'cardio' as const, minutes: 30 },
-    ],
-  };
-
-  it('writes timestamp,activity,category,minutes oldest first and reads it back', () => {
-    const csv = toExerciseCsv(user);
-    expect(csv).toBe(
-      'timestamp,activity,category,minutes\n2026-10-11T07:15:00,Morning run,Cardio,30\n2026-10-11T18:00:00,"Weights, upper body",Strength,40\n',
-    );
-    expect(parseExerciseCsv(csv)).toEqual([
-      { timestamp: at(7, 15), name: 'Morning run', category: 'cardio', minutes: 30 },
-      { timestamp: at(18), name: 'Weights, upper body', category: 'strength', minutes: 40 },
-    ]);
+  it('averages dates that appear more than once and lists them', () => {
+    const result = parseUpload('Date, Weight_KG\r\n2026-11-20,70\r\n2026-11-21,69\r\n2026-11-20,71\r\n', 'kg', TODAY);
+    expect(result).toEqual({
+      entries: [
+        { date: '2026-11-20', weight: 70.5 },
+        { date: '2026-11-21', weight: 69 },
+      ],
+      merged: ['2026-11-20'],
+      fileUnit: 'kg',
+    });
   });
 
-  it('skips rows with an unknown category, a bad duration, or no activity', () => {
-    const csv = [
-      'timestamp,activity,category,minutes',
-      '2026-10-11T07:00,Run,cardio,30',
-      '2026-10-11T08:00,Dance,party,30',
-      '2026-10-11T09:00,Yoga,Flexibility,0',
-      '2026-10-11T10:00,Yoga,Flexibility,',
-      '2026-10-11T11:00,,Strength,20',
-    ].join('\n');
-    expect(parseExerciseCsv(csv).map((e) => e.name)).toEqual(['Run']);
-    expect(() => parseExerciseCsv('timestamp,activity\n')).toThrow(/minutes/);
+  it('refuses a file that is not in the download format', () => {
+    for (const csv of ['timestamp,weight_kg,weight_lb,entered_unit\n2026-11-20T07:00:00,70,154.32,kg\n', 'date,weight\n2026-11-20,70\n', '']) {
+      expect(parseUpload(csv, 'kg', TODAY)).toEqual({ error: expect.stringMatching(/date,weight_kg/) });
+    }
+  });
+
+  it('refuses the whole file when any row cannot be read, naming the lines', () => {
+    const csv = 'date,weight_kg\n2026-11-20,70\nyesterday,70\n2026-11-21,-1\n2026-11-22,\n';
+    expect(parseUpload(csv, 'kg', TODAY)).toEqual({ error: expect.stringMatching(/^Lines 3, 4, 5 can't be read/) });
+    expect(parseUpload('date,weight_kg\n2026-02-30,70\n', 'kg', TODAY)).toEqual({ error: expect.stringMatching(/^Line 2 can't be read/) });
+  });
+
+  it('refuses weigh-ins after today, and a file with none', () => {
+    expect(parseUpload('date,weight_kg\n2026-11-25,70\n', 'kg', TODAY)).toEqual({ error: expect.stringMatching(/2026-11-25.*after today/) });
+    expect(parseUpload('date,weight_kg\n2026-11-24,70\n', 'kg', TODAY)).not.toHaveProperty('error');
+    expect(parseUpload('date,weight_kg\n', 'kg', TODAY)).toEqual({ error: 'The file has no weigh-ins.' });
   });
 });
-

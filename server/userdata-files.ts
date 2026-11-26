@@ -1,19 +1,17 @@
 // Stores each profile as CSV files on this computer, keyed by the profile's name:
-//   testdata/profiles.csv          name,unit
-//   testdata/<slug>-weight.csv     timestamp,weight_kg,weight_lb,entered_unit
-//   testdata/<slug>-food.csv       timestamp,food,category
-//   testdata/<slug>-exercise.csv   timestamp,activity,category,minutes
+//   testdata/profiles.csv          name,unit and the profile's settings (see src/profile-files.ts)
+//   testdata/<slug>-weight.csv     date,weight_kg  or  date,weight_lb
 // These files are the source of truth while the app runs locally: any browser that opens
 // a profile loads it from here (see userdata-plugin.ts for the HTTP routes).
 // The file layout itself lives in src/profile-files.ts, shared with the browser's folder picker;
 // this module is its Node adapter plus the one-time file migrations.
 
-import { copyFile, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseFoodCsv, parseWeightCsv, toWeightCsv } from '../src/csv.ts';
+import { parseWeightCsv } from '../src/csv.ts';
 import * as files from '../src/profile-files.ts';
 import { detectUnit, nameFromSlug, type TextStore, VALID_SLUG } from '../src/profile-files.ts';
-import type { FileProfile, FileProfileData, FoodEntry, UserData, WeightEntry } from '../src/types.ts';
+import type { FileProfile, FileProfileData, WeightEntry } from '../src/types.ts';
 
 export { VALID_SLUG, validateUser } from '../src/profile-files.ts';
 
@@ -48,7 +46,7 @@ export function nodeStore(dir: string): TextStore {
 
 export const listProfiles = (dir: string): Promise<FileProfile[]> => files.listProfiles(nodeStore(dir));
 export const readProfile = (dir: string, slug: string): Promise<FileProfileData | null> => files.readProfile(nodeStore(dir), slug);
-export const writeProfile = (dir: string, user: Pick<UserData, 'name' | 'unit' | 'entries' | 'foods' | 'exercises'>): Promise<string> =>
+export const writeProfile = (dir: string, user: Parameters<typeof files.writeProfile>[1]): Promise<string> =>
   files.writeProfile(nodeStore(dir), user);
 export const removeProfile = (dir: string, slug: string): Promise<void> => files.removeProfile(nodeStore(dir), slug);
 
@@ -80,11 +78,7 @@ export async function migrate(dir: string): Promise<string[]> {
 
     const entries = new Map<string, Omit<WeightEntry, 'id'>>();
     for (const text of weightTexts) {
-      for (const e of parseWeightCsv(text, unit).entries) entries.set(`${e.timestamp}|${e.kg}`, e);
-    }
-    const foods = new Map<string, Omit<FoodEntry, 'id'>>();
-    for (const t of texts.filter((t) => t.f.endsWith('-food.csv'))) {
-      for (const f of parseFoodCsv(t.text)) foods.set(`${f.timestamp}|${f.text}`, f);
+      for (const e of parseWeightCsv(text, unit).entries) entries.set(`${e.date}|${e.weight}`, e);
     }
 
     const existing = await readProfile(dir, slug);
@@ -92,7 +86,6 @@ export async function migrate(dir: string): Promise<string[]> {
       name: existing?.name ?? nameFromSlug(slug),
       unit: existing?.unit ?? unit,
       entries: [...(existing?.entries ?? []), ...[...entries.values()].map((e, i) => ({ id: String(i), ...e }))],
-      foods: [...(existing?.foods ?? []), ...[...foods.values()].map((f, i) => ({ id: String(i), ...f }))],
     });
     for (const f of group) await rename(join(dir, f), join(dir, MIGRATED, f));
   }
@@ -100,29 +93,30 @@ export async function migrate(dir: string): Promise<string[]> {
 }
 
 /**
- * Rewrites weight files still in the older "timestamp,weight,unit" format into the current
- * "timestamp,weight_kg,weight_lb,entered_unit" format. Each original is copied to
- * testdata/.migrated/<name>.v1.csv first. Safe to run on every start: current files are left alone.
+ * Cleans up every profile's weight file when the server starts (see cleanWeightFile in src/profile-files.ts):
+ * older formats with times become one row per date in the profile's unit, duplicate dates are averaged, and
+ * weights keep at most 2 decimals. Each original is copied to testdata/.migrated/<name>.<time>.csv as well as
+ * <slug>-weight.backup.csv. Safe to run on every start: clean files are left alone. Returns the slugs changed.
  */
 export async function upgradeWeightFiles(dir: string): Promise<string[]> {
-  let files: string[];
+  let names: string[];
   try {
-    files = await readdir(dir);
+    names = await readdir(dir);
   } catch {
     return [];
   }
+  const store = nodeStore(dir);
+  const profiles = await listProfiles(dir);
   const upgraded: string[] = [];
-  for (const f of files) {
+  for (const f of names) {
     const slug = /^(.+)-weight\.csv$/.exec(f)?.[1];
     if (!slug || !VALID_SLUG.test(slug)) continue;
     const text = (await readText(join(dir, f))) ?? '';
-    const header = text.split(/\r?\n/, 1)[0].toLowerCase();
-    if (header.includes('weight_kg') || header.includes('weight_lb')) continue;
-    const profile = await readProfile(dir, slug);
-    if (!profile) continue;
+    const unit = profiles.find((p) => p.slug === slug)?.unit ?? detectUnit(text);
+    if (!(await files.cleanWeightFile(store, slug, unit, text))) continue;
     await mkdir(join(dir, MIGRATED), { recursive: true });
-    await copyFile(join(dir, f), join(dir, MIGRATED, f.replace(/\.csv$/, '.v1.csv')));
-    await writeAtomic(join(dir, f), toWeightCsv({ version: 1, userId: slug, ...profile }));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    await writeFile(join(dir, MIGRATED, f.replace(/\.csv$/, `.${stamp}.csv`)), text, 'utf8');
     upgraded.push(slug);
   }
   return upgraded;
