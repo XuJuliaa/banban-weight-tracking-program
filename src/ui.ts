@@ -203,7 +203,7 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
 
   dom.chartFigure.hidden = false;
   const series: ChartSeries[] = [
-    { label: 'Daily', points: weights, className: 'series-weight', dots: true, smooth: false },
+    { label: 'Daily', points: weights, className: 'series-weight', dots: false, smooth: false },
     { label: `${user.settings.averageDays}-day avg`, points: averages, className: 'series-average', dots: false, smooth: true },
   ];
   renderLineChart(dom.chartHost, series, from, to, {
@@ -247,7 +247,7 @@ export function renderSlopeChart(user: UserData, startDay: number, endDay: numbe
   const from = new Date(startDay).setHours(0, 0, 0, 0);
   const to = new Date(endDay).setHours(23, 59, 59, 999);
   dom.chartFigure.hidden = false;
-  renderLineChart(dom.chartHost, [{ label: '30-day pace', points, className: 'series-slope', dots: true, smooth: false }], from, to, {
+  renderLineChart(dom.chartHost, [{ label: '30-day pace', points, className: 'series-slope', dots: false, smooth: false }], from, to, {
     unit: user.unit,
     formatX: (x) => dayFormat.format(x),
     formatY: (y) => `${signed(y)} ${user.unit} / ${SLOPE_PER_DAYS} days`,

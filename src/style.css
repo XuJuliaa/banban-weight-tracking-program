@@ -446,7 +446,8 @@ button.chip[aria-pressed='true'] { background: var(--accent-soft); border-color:
 .chart-axis { stroke: var(--chart-axis); stroke-width: 1; }
 .chart-tick { fill: var(--chart-ink); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.chart-line.series-weight { stroke: var(--series-1); stroke-width: 1.5; stroke-opacity: 0.7; }
+/* Daily weigh-ins stay thin and light so the eye goes to the trailing average, which is the number to watch. */
+.chart-line.series-weight { stroke: var(--series-1); stroke-width: 1.25; stroke-opacity: 0.55; }
 .chart-line.series-average { stroke: var(--series-ink); stroke-width: 2.5; }
 .chart-dot { stroke: var(--surface); stroke-width: 2; }
 .chart-dot.series-weight, .chart-focus.series-weight { fill: var(--series-1); }
@@ -478,23 +479,12 @@ button.chip[aria-pressed='true'] { background: var(--accent-soft); border-color:
 .chart-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 8px; font-size: 0.85rem; color: var(--muted); }
 .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .chart-swatch { display: inline-block; width: 16px; height: 0; border-top: 2.5px solid; flex: none; }
-.chart-swatch.series-weight { border-color: var(--series-1); position: relative; }
-.chart-swatch.series-weight::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: -4.25px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--series-1);
-}
+.chart-swatch.series-weight { border-top-width: 1.5px; border-color: var(--series-1); opacity: 0.6; }
 .chart-swatch.series-average { border-color: var(--series-ink); }
 
 /* Slope chart: the 30-day pace, with a dashed line at 0 between gaining (above) and losing (below). */
 .chart-line.series-slope { stroke: var(--series-ink); stroke-width: 2; }
 .chart-dot.series-slope, .chart-focus.series-slope { fill: var(--series-ink); }
-.chart-dot.series-slope { r: 3; }
 .chart-swatch.series-slope { border-color: var(--series-ink); }
 .chart-zero { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
 .chart-tabs { margin-top: 12px; }
