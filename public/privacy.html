@@ -33,10 +33,10 @@
 
       <h2>1. What data the app handles</h2>
       <ul>
-        <li><strong>What you log:</strong> your weight for each date you log it (one per day, in the unit you choose).</li>
+        <li><strong>What you log:</strong> your weight for each date you log it (one per day, in the unit you choose). If you use Upload data, the CSV file you pick is read in your browser and its weigh-ins are saved like any others; the file isn't sent anywhere.</li>
         <li><strong>Your profile:</strong> a profile name and your preferred unit (kg or lb).</li>
         <li><strong>From your Google account, if you use Continue with Google:</strong> your email address and name, and the IDs of the app's Drive folder and files. See section 3.</li>
-        <li><strong>Settings:</strong> your color theme and the unit you last used at login.</li>
+        <li><strong>Settings:</strong> your profile's settings (color theme, weight unit, and the number of days used for the average and slope charts), saved with your profile; and, in this browser, the color theme last used and the unit you last used at login.</li>
       </ul>
       <p>
         Weight records can say something about your health. The app treats them as private: they stay
@@ -46,14 +46,14 @@
       <h2>2. Where your data is kept</h2>
       <p>The app runs entirely in your browser and saves your data in places you control:</p>
       <ul>
-        <li><strong>Your Google Drive</strong> (Continue with Google): a folder named "BanBan Weight Tracker" in your own Drive, with a Google Sheet for your weight log and a list of profiles. Google stores these files under <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.</li>
+        <li><strong>Your Google Drive</strong> (Continue with Google): a folder named "BanBan Weight Tracker" in your own Drive, with a Google Sheet for your weight log and a list of profiles with their settings. Google stores these files under <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.</li>
         <li><strong>A folder on your computer</strong> (username login, in browsers that support it): CSV files in the folder you pick. The app can only open the folder you choose.</li>
         <li><strong>Your browser</strong>, on your device:
           <table>
             <thead><tr><th>Where</th><th>What</th></tr></thead>
             <tbody>
               <tr><td>IndexedDB</td><td>A copy of your profiles and entries so the app works offline; the folder you chose; for Google Drive, the Drive folder ID and your email address.</td></tr>
-              <tr><td>Local storage</td><td>Color theme and the unit used at login.</td></tr>
+              <tr><td>Local storage</td><td>The color theme last used (so the login page shows it) and the unit used at login.</td></tr>
               <tr><td>Session storage</td><td>Which profile is logged in on this tab and, with Google, the sign-in token (see below). Both are cleared when the tab closes.</td></tr>
               <tr><td>Service worker cache</td><td>The app's own files (pages, scripts, icon) so it loads offline. No personal data.</td></tr>
             </tbody>

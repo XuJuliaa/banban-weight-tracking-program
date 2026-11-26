@@ -1,5 +1,6 @@
-// Color themes picked with the swatches next to the title. The choice is a per-browser preference,
-// kept in localStorage; index.html applies it before the first paint and this module keeps it in sync.
+// Color themes, picked on the Settings page and saved with the profile (ProfileSettings.palette).
+// The last one applied is also kept in this browser's localStorage, so index.html can paint the login
+// page in it before the first frame.
 
 export const PALETTES = {
   coral: { label: 'Warm coral', themeColor: '#af5a3f' },
@@ -14,16 +15,7 @@ export type Palette = keyof typeof PALETTES;
 const STORAGE_KEY = 'palette';
 const isPalette = (value: unknown): value is Palette => typeof value === 'string' && value in PALETTES;
 
-function savedPalette(): Palette {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    if (value === 'indigo') return 'blue'; // renamed; keep the visitor's choice
-    return isPalette(value) ? value : 'coral';
-  } catch {
-    return 'coral';
-  }
-}
-
+/** Applies a color theme to the page, marks its swatch in `picker`, and remembers it in this browser. */
 export function applyPalette(palette: Palette, picker: HTMLElement): void {
   // Coral is the default in the stylesheet, so it needs no attribute.
   if (palette === 'coral') delete document.documentElement.dataset.palette;
@@ -39,10 +31,10 @@ export function applyPalette(palette: Palette, picker: HTMLElement): void {
   }
 }
 
-export function initThemePicker(picker: HTMLElement): void {
-  applyPalette(savedPalette(), picker);
+/** Calls `onPick` with the palette whose swatch in `picker` is clicked. */
+export function initThemePicker(picker: HTMLElement, onPick: (palette: Palette) => void): void {
   picker.addEventListener('click', (event) => {
     const value = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-palette]')?.dataset.palette;
-    if (isPalette(value)) applyPalette(value, picker);
+    if (isPalette(value)) onPick(value);
   });
 }

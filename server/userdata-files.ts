@@ -1,5 +1,5 @@
 // Stores each profile as CSV files on this computer, keyed by the profile's name:
-//   testdata/profiles.csv          name,unit
+//   testdata/profiles.csv          name,unit and the profile's settings (see src/profile-files.ts)
 //   testdata/<slug>-weight.csv     date,weight_kg  or  date,weight_lb
 // These files are the source of truth while the app runs locally: any browser that opens
 // a profile loads it from here (see userdata-plugin.ts for the HTTP routes).
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { parseWeightCsv } from '../src/csv.ts';
 import * as files from '../src/profile-files.ts';
 import { detectUnit, nameFromSlug, type TextStore, VALID_SLUG } from '../src/profile-files.ts';
-import type { FileProfile, FileProfileData, UserData, WeightEntry } from '../src/types.ts';
+import type { FileProfile, FileProfileData, WeightEntry } from '../src/types.ts';
 
 export { VALID_SLUG, validateUser } from '../src/profile-files.ts';
 
@@ -46,7 +46,7 @@ export function nodeStore(dir: string): TextStore {
 
 export const listProfiles = (dir: string): Promise<FileProfile[]> => files.listProfiles(nodeStore(dir));
 export const readProfile = (dir: string, slug: string): Promise<FileProfileData | null> => files.readProfile(nodeStore(dir), slug);
-export const writeProfile = (dir: string, user: Pick<UserData, 'name' | 'unit' | 'entries'>): Promise<string> =>
+export const writeProfile = (dir: string, user: Parameters<typeof files.writeProfile>[1]): Promise<string> =>
   files.writeProfile(nodeStore(dir), user);
 export const removeProfile = (dir: string, slug: string): Promise<void> => files.removeProfile(nodeStore(dir), slug);
 

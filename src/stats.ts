@@ -1,6 +1,5 @@
 import type { WeightPoint } from './types.ts';
 
-export const MOVING_AVERAGE_DAYS = 10;
 export const FREQUENCY_DAYS = 30;
 
 /** Local calendar date key, e.g. "2026-10-11". */
@@ -28,13 +27,13 @@ function entriesInWindow(entries: WeightPoint[], now: number, days: number): Wei
 }
 
 /**
- * Average weight over the last 10 calendar days (today included).
+ * Average weight over the last `days` calendar days (today included), the trailing average set in Settings.
  * Several entries on the same day are averaged first, so each day counts once.
  * Returns null when there are no entries in the window.
  */
-export function movingAverage10d(entries: WeightPoint[], now: number): number | null {
+export function movingAverage(entries: WeightPoint[], now: number, days: number): number | null {
   const byDay = new Map<string, number[]>();
-  for (const e of entriesInWindow(entries, now, MOVING_AVERAGE_DAYS)) {
+  for (const e of entriesInWindow(entries, now, days)) {
     const key = dayKey(e.timestamp);
     const list = byDay.get(key) ?? [];
     list.push(e.weight);
@@ -119,15 +118,15 @@ export function weightSeries(entries: WeightPoint[], startDay: number, endDay: n
 }
 
 /**
- * The 10-day moving average as it stood at the end of each day from `startDay` to `endDay`.
- * Days with no entries in their 10-day window are null.
+ * The `days`-day moving average as it stood at the end of each day from `startDay` to `endDay`.
+ * Days with no entries in their window are null.
  */
-export function movingAverageSeries(entries: WeightPoint[], startDay: number, endDay: number): SeriesPoint[] {
+export function movingAverageSeries(entries: WeightPoint[], startDay: number, endDay: number, days: number): SeriesPoint[] {
   const points: SeriesPoint[] = [];
   const last = startOfDay(endDay);
   for (let day = startOfDay(startDay); day <= last; day = addDays(day, 1)) {
     const endOfDay = addDays(day, 1) - 1;
-    points.push({ x: day, y: movingAverage10d(entries, endOfDay) });
+    points.push({ x: day, y: movingAverage(entries, endOfDay, days) });
   }
   return points;
 }
@@ -155,27 +154,30 @@ export function linearSlope(points: { x: number; y: number }[]): number | null {
   return sxx === 0 ? null : sxy / sxx;
 }
 
-/** The slope chart: a linear fit over the 60 calendar days ending on each weigh-in… */
-export const SLOPE_WINDOW_DAYS = 60;
-/** …shown only when at least 30% of those days (18 of 60) have a weigh-in… */
-export const SLOPE_MIN_DAYS = Math.ceil(SLOPE_WINDOW_DAYS * 0.3);
-/** …as the change over 30 days at that pace. */
+/** The slope chart shows the change over this many days at the fitted pace. */
 export const SLOPE_PER_DAYS = 30;
+
+export interface SlopeOptions {
+  /** Calendar days each fit covers, ending on the weigh-in's date (60 by default, set in Settings). */
+  windowDays: number;
+  /** Logged days that window needs before a slope is shown (18 of 60 by default). */
+  minDays: number;
+}
 
 /**
  * The 30-day pace for each weigh-in between the start of `startDay` and the end of `endDay`, oldest first:
- * the least-squares slope of the weigh-ins in the 60 calendar days ending on that weigh-in's date (which may
- * reach back before `startDay`), times 30. It's null (a gap in the line) when fewer than 18 of those days
- * have a weigh-in. Negative means losing weight.
+ * the least-squares slope of the weigh-ins in the `windowDays` calendar days ending on that weigh-in's date
+ * (which may reach back before `startDay`), times 30. It's null (a gap in the line) when fewer than `minDays`
+ * of those days have a weigh-in. Negative means losing weight.
  */
-export function slopeSeries(entries: WeightPoint[], startDay: number, endDay: number): SeriesPoint[] {
+export function slopeSeries(entries: WeightPoint[], startDay: number, endDay: number, { windowDays, minDays }: SlopeOptions): SeriesPoint[] {
   const sorted = [...entries].sort((a, b) => a.timestamp - b.timestamp);
   return weightSeries(sorted, startDay, endDay).map((p) => {
-    const from = windowStart(p.x, SLOPE_WINDOW_DAYS);
+    const from = windowStart(p.x, windowDays);
     const to = addDays(startOfDay(p.x), 1);
     const window = sorted.filter((e) => e.timestamp >= from && e.timestamp < to);
     const days = new Set(window.map((e) => dayKey(e.timestamp))).size;
-    const slope = days >= SLOPE_MIN_DAYS ? linearSlope(window.map((e) => ({ x: e.timestamp, y: e.weight }))) : null;
+    const slope = days >= Math.max(2, minDays) ? linearSlope(window.map((e) => ({ x: e.timestamp, y: e.weight }))) : null;
     return { x: p.x, y: slope === null ? null : slope * SLOPE_PER_DAYS, id: p.id };
   });
 }

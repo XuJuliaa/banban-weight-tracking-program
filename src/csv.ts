@@ -178,3 +178,39 @@ export function parseCsvRows(text: string): string[][] {
   }
   return rows;
 }
+
+export interface UploadResult {
+  /** One entry per date, oldest first, in the profile's unit. */
+  entries: CsvRow[];
+  /** Dates that had more than one row; their weights were averaged into one. */
+  merged: string[];
+  /** The unit the file was in (converted when it isn't the profile's). */
+  fileUnit: WeightUnit;
+}
+
+const UPLOAD_HEADER = /^date,weight_(kg|lb)$/;
+
+/**
+ * Reads a CSV the user uploads to replace their weigh-ins. It must be in the same format as a download
+ * ("date,weight_kg" or "date,weight_lb", one row per date); a file in the other unit is converted to `unit`,
+ * and rows on the same date are averaged. Returns an error to show instead when the header is different,
+ * any row can't be read, a date is after `today` ("YYYY-MM-DD"), or there are no weigh-ins.
+ */
+export function parseUpload(text: string, unit: WeightUnit, today: string): UploadResult | { error: string } {
+  const header = (parseCsvRows(text)[0] ?? []).map((h) => h.trim().toLowerCase()).join(',');
+  const match = UPLOAD_HEADER.exec(header);
+  if (!match) {
+    return { error: 'The file needs the same columns as a download: a first row of "date,weight_kg" or "date,weight_lb".' };
+  }
+  const parsed = parseWeightCsv(text, unit);
+  if (parsed.skipped.length) {
+    const lines = parsed.skipped.slice(0, 5).join(', ') + (parsed.skipped.length > 5 ? ', …' : '');
+    return {
+      error: `${parsed.skipped.length === 1 ? 'Line' : 'Lines'} ${lines} can't be read. Each row needs a date (YYYY-MM-DD) and a weight above 0.`,
+    };
+  }
+  const future = parsed.entries.find((e) => e.date > today);
+  if (future) return { error: `The file has a weigh-in on ${future.date}, which is after today.` };
+  if (!parsed.entries.length) return { error: 'The file has no weigh-ins.' };
+  return { entries: parsed.entries, merged: parsed.merged, fileUnit: match[1] as WeightUnit };
+}

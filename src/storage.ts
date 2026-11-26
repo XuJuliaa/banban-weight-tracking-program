@@ -1,6 +1,7 @@
 import { get, set } from 'idb-keyval';
 import { profileSlug } from './names';
 import type { FileProfileData, ProfileSummary, UserData, WeightEntry, WeightUnit } from './types';
+import { DEFAULT_SETTINGS, normalizeSettings } from './settings';
 import { mergeSameDay, normalizeEntry } from './units';
 import { fetchProfile, fetchProfileList, pushUserFiles } from './userdata-api';
 
@@ -50,6 +51,7 @@ async function storeFromFiles(data: FileProfileData, userId: string, updatedAt?:
     userId,
     name: data.name,
     unit: data.unit,
+    settings: data.settings,
     entries: data.entries,
     updatedAt: updatedAt ?? Date.now(),
     ...(googleEmail ? { googleEmail } : {}),
@@ -79,7 +81,15 @@ export async function openGoogleProfile(name: string, email: string): Promise<{ 
     await saveUser(localUser);
     return { user: localUser, existed: true };
   }
-  const data: UserData = { version: 1, userId: crypto.randomUUID(), name, unit: 'kg', entries: [], googleEmail: email };
+  const data: UserData = {
+    version: 1,
+    userId: crypto.randomUUID(),
+    name,
+    unit: 'kg',
+    settings: { ...DEFAULT_SETTINGS },
+    entries: [],
+    googleEmail: email,
+  };
   await saveUser(data);
   return { user: data, existed: false };
 }
@@ -96,7 +106,7 @@ export async function createProfile(name: string, unit: WeightUnit): Promise<{ u
   const fromFiles = await fetchProfile(name).catch(() => undefined);
   if (fromFiles) return { user: await storeFromFiles(fromFiles, crypto.randomUUID()), existed: true };
 
-  const data: UserData = { version: 1, userId: crypto.randomUUID(), name, unit, entries: [] };
+  const data: UserData = { version: 1, userId: crypto.randomUUID(), name, unit, settings: { ...DEFAULT_SETTINGS }, entries: [] };
   await saveUser(data);
   return { user: data, existed: false };
 }
@@ -156,7 +166,8 @@ export async function loadUser(userId: string): Promise<UserData | undefined> {
   const entries = user.entries.map((e) => normalizeEntry(e, user.unit)).filter((e): e is WeightEntry => e !== null);
   // Older versions also kept food and exercise logs in this record; they're no longer used, so drop them.
   const { foods: _foods, exercises: _exercises, ...rest } = user as UserData & { foods?: unknown; exercises?: unknown };
-  return { ...rest, entries: mergeSameDay(entries).entries };
+  // Records from before settings existed get the defaults.
+  return { ...rest, settings: normalizeSettings(rest.settings), entries: mergeSameDay(entries).entries };
 }
 
 /** Writes the user's whole record, keeps the profile list in sync, and writes their testdata/ CSV files. */

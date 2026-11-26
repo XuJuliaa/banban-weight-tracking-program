@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseCsvRows, parseTimestamp, parseWeightCsv, toWeightCsv } from './csv';
+import { parseCsvRows, parseTimestamp, parseUpload, parseWeightCsv, toWeightCsv } from './csv';
+import { DEFAULT_SETTINGS } from './settings';
 import type { UserData } from './types';
 
 describe('parseTimestamp', () => {
@@ -124,6 +125,7 @@ describe('parseWeightCsv', () => {
       userId: 'u1',
       name: 'Juju',
       unit: 'lb',
+      settings: { ...DEFAULT_SETTINGS },
       entries: [
         { id: 'b', date: '2026-08-14', weight: 158.4 },
         { id: 'a', date: '2026-08-13', weight: 158.7 },
@@ -154,5 +156,60 @@ describe('parseWeightCsv', () => {
 describe('parseCsvRows', () => {
   it('handles quoted commas, escaped quotes, line breaks, and CRLF', () => {
     expect(parseCsvRows('a,b\r\n1,"x, ""y""\nz"\r\n')).toEqual([['a', 'b'], ['1', 'x, "y"\nz']]);
+  });
+});
+
+describe('parseUpload', () => {
+  const TODAY = '2026-11-24';
+  const entries = [
+    { id: 'a', date: '2026-11-20', weight: 70.4 },
+    { id: 'b', date: '2026-11-22', weight: 69.85 },
+  ];
+
+  it('takes back a download unchanged', () => {
+    const csv = toWeightCsv({ unit: 'kg', entries });
+    expect(parseUpload(csv, 'kg', TODAY)).toEqual({
+      entries: entries.map(({ id: _id, ...e }) => e),
+      merged: [],
+      fileUnit: 'kg',
+    });
+  });
+
+  it('converts a file in the other unit to the profile\'s', () => {
+    expect(parseUpload('date,weight_lb\n2026-11-20,154.32\n', 'kg', TODAY)).toEqual({
+      entries: [{ date: '2026-11-20', weight: 70 }],
+      merged: [],
+      fileUnit: 'lb',
+    });
+  });
+
+  it('averages dates that appear more than once and lists them', () => {
+    const result = parseUpload('Date, Weight_KG\r\n2026-11-20,70\r\n2026-11-21,69\r\n2026-11-20,71\r\n', 'kg', TODAY);
+    expect(result).toEqual({
+      entries: [
+        { date: '2026-11-20', weight: 70.5 },
+        { date: '2026-11-21', weight: 69 },
+      ],
+      merged: ['2026-11-20'],
+      fileUnit: 'kg',
+    });
+  });
+
+  it('refuses a file that is not in the download format', () => {
+    for (const csv of ['timestamp,weight_kg,weight_lb,entered_unit\n2026-11-20T07:00:00,70,154.32,kg\n', 'date,weight\n2026-11-20,70\n', '']) {
+      expect(parseUpload(csv, 'kg', TODAY)).toEqual({ error: expect.stringMatching(/date,weight_kg/) });
+    }
+  });
+
+  it('refuses the whole file when any row cannot be read, naming the lines', () => {
+    const csv = 'date,weight_kg\n2026-11-20,70\nyesterday,70\n2026-11-21,-1\n2026-11-22,\n';
+    expect(parseUpload(csv, 'kg', TODAY)).toEqual({ error: expect.stringMatching(/^Lines 3, 4, 5 can't be read/) });
+    expect(parseUpload('date,weight_kg\n2026-02-30,70\n', 'kg', TODAY)).toEqual({ error: expect.stringMatching(/^Line 2 can't be read/) });
+  });
+
+  it('refuses weigh-ins after today, and a file with none', () => {
+    expect(parseUpload('date,weight_kg\n2026-11-25,70\n', 'kg', TODAY)).toEqual({ error: expect.stringMatching(/2026-11-25.*after today/) });
+    expect(parseUpload('date,weight_kg\n2026-11-24,70\n', 'kg', TODAY)).not.toHaveProperty('error');
+    expect(parseUpload('date,weight_kg\n', 'kg', TODAY)).toEqual({ error: 'The file has no weigh-ins.' });
   });
 });

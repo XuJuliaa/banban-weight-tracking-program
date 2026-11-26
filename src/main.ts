@@ -11,7 +11,7 @@ import {
   loadUserFromFiles,
   setSyncErrorHandler,
 } from './storage';
-import { toWeightCsv } from './csv';
+import { parseUpload, toWeightCsv } from './csv';
 import {
   chooseFolder,
   closeAccount,
@@ -20,7 +20,6 @@ import {
   openAccount,
   pickAccountFolder,
   fetchProfileList,
-  fileLocations,
   findProfileData,
   googleLogin,
   reconnectGoogle,
@@ -39,8 +38,9 @@ import { isMobileDevice } from './device';
 import type { UserData, WeightUnit } from './types';
 import { type ChartRange, chartPeriod, dayKey } from './stats';
 import { overrideDay } from './edits';
-import { initThemePicker } from './theme';
-import { convertEntries } from './units';
+import { parseSetting, SETTING_RANGES, type NumberSetting } from './settings';
+import { applyPalette, initThemePicker } from './theme';
+import { convertEntries, dateToTime } from './units';
 import {
   confirmChange,
   dom,
@@ -57,9 +57,10 @@ import {
   renderSignupFolder,
   renderUser,
   showFormError,
-  showDataFiles,
   showToast,
   type LoginMode,
+  type Page,
+  showSettingsError,
 } from './ui';
 
 /** The logged-in profile; null on the login page. */
@@ -91,15 +92,22 @@ function showChartView(view: ChartView, focus = false): void {
   drawChart();
 }
 
+/** The page a logged-in user is on: the tracker, or Settings. */
+let page: Page = 'tracker';
+
 function render(): void {
   renderAccount(current?.name ?? null);
-  renderUser(current, Date.now());
+  // The profile's color scheme (also remembered in this browser, for the login page).
+  if (current) applyPalette(current.settings.palette, dom.themePicker);
+  renderUser(current, Date.now(), page);
   renderFolder(userdataStatus(), userdataPath(), current);
   renderSignupFolder(userdataStatus(), userdataPath(), signupFolder?.name ?? null);
-  // Saving to a folder is required: without one, show what to do instead of the app (Log out stays).
+  // Saving to a folder is required: without one, show what to do instead of the app (with its own Log out).
   if (renderGate(userdataStatus(), userdataPath(), current !== null)) {
     dom.login.hidden = true;
     dom.tracker.hidden = true;
+    dom.settingsPage.hidden = true;
+    dom.settingsBtn.hidden = true;
   }
   if (current) renderOverride(current, readDateInput(dom.overrideDate));
   drawChart();
@@ -113,6 +121,8 @@ async function selectProfile(userId: string | null): Promise<void> {
   chartRange = '90';
   chartView = 'weight';
   selectChartView('weight');
+  page = 'tracker';
+  showSettingsError(null);
   dom.overrideDate.value = dayKey(Date.now());
   render();
 }
@@ -403,6 +413,7 @@ setLoginUnit(loginUnit);
 dom.logoutBtn.addEventListener('click', () => {
   endSession();
   current = null;
+  page = 'tracker';
   closeAccount();
   void refreshTakenNames();
   selectLoginMode('login');
@@ -502,49 +513,69 @@ function download(blob: Blob, fileName: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Exports the weight log as "weight-Juju-2026-10-14.csv", as a backup. */
-dom.exportBtn.addEventListener('click', () => {
+/** Download data: the weight log as "weight-Juju-2026-10-14.csv", in the same format Upload data reads. */
+dom.downloadBtn.addEventListener('click', () => {
   if (!current) return;
   const name = current.name.replace(/[^\w-]+/g, '_');
   const date = new Date().toISOString().slice(0, 10);
   download(new Blob([toWeightCsv(current)], { type: 'text/csv' }), `weight-${name}-${date}.csv`);
 });
 
-const FILE_LABELS = ['Weight'];
+/** Largest CSV Upload data accepts; a download of decades of daily weigh-ins is well under 1 MB. */
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 
-/**
- * "Edit data…": there's no import. The data folder's files are the data, so this shows where they are (with links
- * to the Google Sheets on Drive); the app reads them again when the user comes back, or on "I'm done, reload".
- */
-dom.editDataBtn.addEventListener('click', async () => {
-  if (!current) return;
-  let where;
+const uploadDay = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+/** "Sep 26, 2026 – Nov 24, 2026" for entries oldest first; "" for none. */
+const spanOf = (entries: { date: string }[]) =>
+  entries.length ? `${uploadDay.format(dateToTime(entries[0].date))} – ${uploadDay.format(dateToTime(entries[entries.length - 1].date))}` : '';
+
+// Upload data: replaces every weigh-in with a CSV's, after a confirmation. The file must look like a download.
+dom.uploadBtn.addEventListener('click', () => dom.uploadInput.click());
+dom.uploadInput.addEventListener('change', async () => {
+  const file = dom.uploadInput.files?.[0];
+  // Cleared right away, so choosing the same file again still triggers a change.
+  dom.uploadInput.value = '';
+  if (!current || !file) return;
+  if (file.size > MAX_UPLOAD_BYTES) {
+    showToast('That file is too large for a weight log (over 2 MB)');
+    return;
+  }
+  let text: string;
   try {
-    where = await fileLocations(current.name);
-  } catch (err) {
-    console.error(err);
-    showToast(err instanceof Error ? err.message : "Couldn't find your data files");
+    text = await file.text();
+  } catch {
+    showToast("Couldn't read that file");
     return;
   }
-  if (!where) {
-    showToast("Your data folder isn't connected right now. Connect it under Data & backup, then try again");
+  const result = parseUpload(text, current.unit, dayKey(Date.now()));
+  if ('error' in result) {
+    showSettingsError(result.error);
     return;
   }
-  const files = where.files.map((f, i) => ({ label: FILE_LABELS[i], name: f.path ?? f.name, ...(f.url ? { url: f.url } : {}) }));
-  const how = {
-    drive: 'Each link opens the file in Google Sheets, where you can add, change or delete rows. Sheets saves as you type.',
-    folder: 'Open the files in the folder you chose with Excel, Numbers or a text editor, then save them as CSV.',
-    service: 'Open the files with Excel, Numbers or a text editor, then save them as CSV.',
-  }[where.store];
-  const lead =
-    where.store === 'drive' ? `${current.name}'s data is in your Google Drive, in the "${where.folder.split(' › ').pop()}" folder:`
-    : where.store === 'folder' ? `${current.name}'s data is in the folder "${where.folder}":`
-    : `${current.name}'s data is in ${where.folder}:`;
-  const reload = await showDataFiles({ where: lead, files, how });
-  if (reload && current) {
-    await reloadCurrent();
-    showToast('Reloaded your data files');
+  showSettingsError(null);
+
+  const unit = current.unit;
+  const before = [...current.entries].sort((a, b) => a.date.localeCompare(b.date));
+  const count = (n: number) => `${n} ${n === 1 ? 'weigh-in' : 'weigh-ins'}`;
+  const lines: string[] = [];
+  if (result.fileUnit !== unit) lines.push(`Weights converted from ${result.fileUnit} to ${unit}.`);
+  if (result.merged.length) {
+    lines.push(`Dates with more than one row were averaged: ${result.merged.slice(0, 5).join(', ')}${result.merged.length > 5 ? ', …' : ''}.`);
   }
+  const ok = await confirmChange({
+    title: 'Replace your weight data?',
+    message:
+      `This replaces your ${count(before.length)}${before.length ? ` (${spanOf(before)})` : ''} ` +
+      `with ${count(result.entries.length)} from "${file.name}" (${spanOf(result.entries)}).`,
+    lines,
+    warning: 'Your current weigh-ins will be deleted. Download your data first if you want to keep a copy.',
+    confirmLabel: 'Replace data',
+  });
+  if (!ok || !current || current.unit !== unit) return;
+  current.entries = result.entries.map((e, i) => ({ id: `u${i}-${e.date}`, ...e }));
+  await saveUser(current);
+  render();
+  showToast(`Uploaded ${count(result.entries.length)}`);
 });
 
 // --- Data folder: on a hosted site, Chrome/Edge can save the CSV files to a folder the user picks.
@@ -677,7 +708,7 @@ new ResizeObserver(([entry]) => {
 }).observe(dom.chartsCard);
 
 // Recompute stats when the app comes back into view, since the windows depend on today's date.
-// Also reload the profile from its files: they may have been edited directly (see "Edit data…") or changed
+// Also reload the profile from its files: they may have been edited by hand or changed
 // from another device.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
@@ -685,7 +716,47 @@ document.addEventListener('visibilitychange', () => {
   else render();
 });
 
-initThemePicker(document.getElementById('theme-picker')!);
+// --- Settings page: color scheme, unit (above), trailing average and slope settings, and Log out.
+
+function openPage(next: Page): void {
+  page = next;
+  showSettingsError(null);
+  render();
+  window.scrollTo({ top: 0 });
+  (next === 'settings' ? dom.settingsBackBtn : dom.settingsBtn).focus();
+}
+
+dom.settingsBtn.addEventListener('click', () => openPage('settings'));
+dom.gateLogoutBtn.addEventListener('click', () => dom.logoutBtn.click());
+dom.settingsBackBtn.addEventListener('click', () => openPage('tracker'));
+
+initThemePicker(dom.themePicker, async (palette) => {
+  if (!current || palette === current.settings.palette) return;
+  current.settings = { ...current.settings, palette };
+  render();
+  await saveUser(current);
+});
+
+// Number settings save when the field is left or Enter is pressed. A value out of range is put back.
+for (const input of dom.settingInputs) {
+  input.addEventListener('change', async () => {
+    if (!current) return;
+    const key = input.dataset.setting as NumberSetting;
+    const value = parseSetting(key, input.value);
+    if (value === null) {
+      const { min, max } = SETTING_RANGES[key];
+      showSettingsError(`Enter a whole number from ${min} to ${max}.`);
+      input.value = String(current.settings[key]);
+      return;
+    }
+    showSettingsError(null);
+    if (value === current.settings[key]) return;
+    current.settings = { ...current.settings, [key]: value };
+    render();
+    await saveUser(current);
+    showToast('Setting saved');
+  });
+}
 void requestPersistentStorage();
 /** Reopens the profile logged in on this tab (e.g. after a reload); otherwise shows the login page. */
 async function start(): Promise<void> {

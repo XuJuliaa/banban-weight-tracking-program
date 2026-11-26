@@ -7,9 +7,10 @@ folder on your computer, and nothing is sent to the developer. See the
 [privacy policy](https://xujuliaa.github.io/banban-weight-tracking-program/privacy.html).
 
 ## What it does
-- **Weight:** log one weight per day in kg or lb, and see your 10-day average, how regularly you log, and a chart of your daily weights.
-- **Slope:** see your current pace, the weight gained or lost per 30 days, from a straight-line fit over the previous 60 days.
-- **Your data:** download it as a CSV file, or edit the file directly.
+- **Weight:** log one weight per day in kg or lb, and see a trailing average (10 days by default), how regularly you log, and a chart of your daily weights.
+- **Slope:** see your current pace, the weight gained or lost per 30 days, from a straight-line fit over the previous 60 days (adjustable).
+- **Settings:** color scheme, kg or lb, the average and slope windows, and Log out, saved with your profile.
+- **Your data:** download it as a CSV file, or upload a CSV in the same format to replace it.
 - Works on phones and computers, offline too, and can be installed like an app.
 
 ## Where your data is saved

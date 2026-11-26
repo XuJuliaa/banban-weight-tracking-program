@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from './settings';
 import { listProfiles, readProfile, removeProfile, type TextStore, validateUser, writeProfile } from './profile-files';
 
 /** A folder kept in memory, standing in for testdata/ or a folder picked in the browser. */
@@ -19,18 +20,22 @@ const juju = {
   entries: [{ id: 'e1', date: '2026-10-11', weight: 154.8 }],
 };
 
+/** Profile list rows without their settings, which have their own tests. */
+const withoutSettings = <T extends { settings?: unknown }>(rows: T[]) => rows.map(({ settings: _settings, ...rest }) => rest);
+
 describe('profile files over any TextStore', () => {
   it('writes the same layout as testdata/ and reads it back', async () => {
     const store = memoryStore();
     expect(await writeProfile(store, juju)).toBe('juju');
     expect([...store.files.keys()].sort()).toEqual(['juju-weight.csv', 'profiles.csv']);
-    expect(store.files.get('profiles.csv')).toBe('name,unit\nJuju,lb\n');
+    expect(store.files.get('profiles.csv')).toBe('name,unit,palette,average_days,slope_days,slope_min_pct\nJuju,lb,coral,10,60,30\n');
 
     const data = await readProfile(store, 'juju');
     expect(data?.unit).toBe('lb');
     expect(store.files.get('juju-weight.csv')).toBe('date,weight_lb\n2026-10-11,154.8\n');
     expect(data?.entries.map((e) => [e.date, e.weight])).toEqual([['2026-10-11', 154.8]]);
-    expect(Object.keys(data ?? {}).sort()).toEqual(['entries', 'name', 'slug', 'unit']);
+    expect(Object.keys(data ?? {}).sort()).toEqual(['entries', 'name', 'settings', 'slug', 'unit']);
+    expect(data?.settings).toEqual(DEFAULT_SETTINGS);
     expect(await readProfile(store, 'nobody')).toBeNull();
   });
 
@@ -49,7 +54,7 @@ describe('profile files over any TextStore', () => {
   it('lists profiles from profiles.csv plus weight files without a row', async () => {
     const store = memoryStore({ 'ana-maria-weight.csv': 'timestamp,weight,unit\n2026-10-01T08:00,60,kg\n' });
     await writeProfile(store, juju);
-    expect(await listProfiles(store)).toEqual([
+    expect(withoutSettings(await listProfiles(store))).toEqual([
       { slug: 'juju', name: 'Juju', unit: 'lb' },
       { slug: 'ana-maria', name: 'Ana Maria', unit: 'kg' },
     ]);
@@ -61,7 +66,7 @@ describe('profile files over any TextStore', () => {
     await writeProfile(store, { ...juju, name: 'Ana' });
     await removeProfile(store, 'juju');
     expect([...store.files.keys()].sort()).toEqual(['ana-weight.csv', 'profiles.csv']);
-    expect(store.files.get('profiles.csv')).toBe('name,unit\nAna,lb\n');
+    expect(store.files.get('profiles.csv')).toBe('name,unit,palette,average_days,slope_days,slope_min_pct\nAna,lb,coral,10,60,30\n');
   });
 
   it('cleans up a weight file with duplicate dates or an older format once, keeping a backup', async () => {
@@ -85,9 +90,32 @@ describe('profile files over any TextStore', () => {
     expect(store.files.has('juju-weight.backup.csv')).toBe(false);
   });
 
+  it("saves each profile's settings in profiles.csv and reads them back", async () => {
+    const store = memoryStore();
+    const settings = { palette: 'mint' as const, averageDays: 7, slopeDays: 30, slopeMinPct: 50 };
+    await writeProfile(store, { ...juju, settings });
+    expect(store.files.get('profiles.csv')).toBe('name,unit,palette,average_days,slope_days,slope_min_pct\nJuju,lb,mint,7,30,50\n');
+    expect((await readProfile(store, 'juju'))?.settings).toEqual(settings);
+    // A record without settings (from an older version) keeps the ones already saved.
+    await writeProfile(store, { name: 'Juju', unit: 'lb', entries: [] });
+    expect((await readProfile(store, 'juju'))?.settings).toEqual(settings);
+  });
+
+  it('reads a profiles.csv from before settings existed with the defaults', async () => {
+    const store = memoryStore({ 'profiles.csv': 'name,unit\nJuju,lb\n', 'juju-weight.csv': 'date,weight_lb\n2026-10-11,154.8\n' });
+    const data = await readProfile(store, 'juju');
+    expect(data).toMatchObject({ unit: 'lb', settings: DEFAULT_SETTINGS });
+    // Unreadable values fall back to their defaults one by one.
+    store.files.set('profiles.csv', 'name,unit,palette,average_days,slope_days,slope_min_pct\nJuju,lb,neon,abc,30,500\n');
+    expect((await readProfile(store, 'juju'))?.settings).toEqual({ ...DEFAULT_SETTINGS, slopeDays: 30 });
+  });
+
   it('validates records before they are written', () => {
     expect(validateUser({ version: 1, userId: 'u', ...juju }, 'juju').name).toBe('Juju');
     expect(() => validateUser({ ...juju, entries: [{ id: 'e', date: '2026-10-11T07:00', weight: 70 }] }, 'juju')).toThrow(/Invalid/);
     expect(() => validateUser({ ...juju, entries: [{ id: 'e', timestamp: 1, kg: 70, lb: 154.3, entered: 'kg' }] }, 'juju')).toThrow(/Invalid/);
+    expect(validateUser({ ...juju, settings: DEFAULT_SETTINGS }, 'juju').settings).toEqual(DEFAULT_SETTINGS);
+    expect(() => validateUser({ ...juju, settings: { ...DEFAULT_SETTINGS, averageDays: 0 } }, 'juju')).toThrow(/Invalid/);
+    expect(() => validateUser({ ...juju, settings: { ...DEFAULT_SETTINGS, palette: 'neon' } }, 'juju')).toThrow(/Invalid/);
   });
 });

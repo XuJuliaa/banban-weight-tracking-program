@@ -2,14 +2,13 @@ import { type ChartSeries, renderLineChart } from './chart';
 import {
   dayKey,
   loggingFrequency30d,
-  movingAverage10d,
+  movingAverage,
   movingAverageSeries,
-  SLOPE_MIN_DAYS,
   SLOPE_PER_DAYS,
-  SLOPE_WINDOW_DAYS,
   slopeSeries,
   weightSeries,
 } from './stats';
+import { type NumberSetting, SETTING_RANGES, slopeMinDays } from './settings';
 import type { UserData } from './types';
 import { pointsIn } from './units';
 import { folderSupported } from './folder-store';
@@ -26,6 +25,16 @@ export const dom = {
   profileControls: el<HTMLDivElement>('profile-controls'),
   accountName: el<HTMLElement>('account-name'),
   logoutBtn: el<HTMLButtonElement>('logout-btn'),
+  gateLogoutBtn: el<HTMLButtonElement>('gate-logout-btn'),
+  settingsBtn: el<HTMLButtonElement>('settings-btn'),
+  settingsPage: el<HTMLElement>('settings-page'),
+  settingsBackBtn: el<HTMLButtonElement>('settings-back-btn'),
+  themePicker: el<HTMLDivElement>('theme-picker'),
+  settingInputs: [...document.querySelectorAll<HTMLInputElement>('#settings-page input[data-setting]')],
+  slopeMinHint: el<HTMLParagraphElement>('slope-min-hint'),
+  settingsError: el<HTMLParagraphElement>('settings-error'),
+  avgLabel: el<HTMLElement>('avg-label'),
+  averageLegendLabel: el<HTMLElement>('average-legend-label'),
   unitToggle: el<HTMLDivElement>('unit-toggle'),
   unitButtons: [...document.querySelectorAll<HTMLButtonElement>('#unit-toggle button[data-unit]')],
   login: el<HTMLElement>('login'),
@@ -50,9 +59,10 @@ export const dom = {
   freqValue: el<HTMLSpanElement>('freq-value'),
   freqNote: el<HTMLSpanElement>('freq-note'),
   freqMeter: el<HTMLDivElement>('freq-meter'),
-  exportBtn: el<HTMLButtonElement>('export-btn'),
+  downloadBtn: el<HTMLButtonElement>('download-btn'),
+  uploadBtn: el<HTMLButtonElement>('upload-btn'),
+  uploadInput: el<HTMLInputElement>('upload-input'),
   folderStatus: el<HTMLParagraphElement>('folder-status'),
-  editDataBtn: el<HTMLButtonElement>('edit-data-btn'),
   folderActions: el<HTMLDivElement>('folder-actions'),
   chooseFolderBtn: el<HTMLButtonElement>('choose-folder-btn'),
   reconnectFolderBtn: el<HTMLButtonElement>('reconnect-folder-btn'),
@@ -71,10 +81,6 @@ export const dom = {
   overrideWeight: el<HTMLInputElement>('override-weight'),
   overrideUnit: el<HTMLSpanElement>('override-unit'),
   overrideCurrent: el<HTMLParagraphElement>('override-current'),
-  editDialog: el<HTMLDialogElement>('edit-dialog'),
-  editWhere: el<HTMLParagraphElement>('edit-where'),
-  editFiles: el<HTMLUListElement>('edit-files'),
-  editHow: el<HTMLParagraphElement>('edit-how'),
   confirmDialog: el<HTMLDialogElement>('confirm-dialog'),
   confirmTitle: el<HTMLHeadingElement>('confirm-title'),
   confirmBody: el<HTMLDivElement>('confirm-body'),
@@ -119,25 +125,54 @@ export function showFormError(form: HTMLElement, message: string | null): void {
   line.hidden = message === null;
 }
 
-export function renderUser(user: UserData | null, now: number): void {
+/** Which page a logged-in user sees: the tracker, or Settings. */
+export type Page = 'tracker' | 'settings';
+
+export function renderUser(user: UserData | null, now: number, page: Page = 'tracker'): void {
   dom.login.hidden = user !== null;
-  dom.tracker.hidden = user === null;
+  dom.tracker.hidden = user === null || page !== 'tracker';
+  dom.settingsPage.hidden = user === null || page !== 'settings';
+  dom.settingsBtn.hidden = page === 'settings';
   if (!user) return;
+  renderSettings(user);
 
   dom.unitLabel.textContent = user.unit;
-  for (const btn of dom.unitButtons) btn.setAttribute('aria-pressed', String(btn.dataset.unit === user.unit));
 
   // Weights are stored in the profile's unit, so they're shown as they are.
   const points = pointsIn(user.entries);
-  const avg = movingAverage10d(points, now);
+  const days = user.settings.averageDays;
+  const avg = movingAverage(points, now, days);
+  dom.avgLabel.textContent = `${days}-day average`;
+  dom.averageLegendLabel.textContent = `${days}-day average`;
   dom.avgValue.textContent = avg === null ? '—' : `${formatWeight(avg)} ${user.unit}`;
-  dom.avgNote.textContent = avg === null ? 'No entries in the last 10 days' : '';
+  dom.avgNote.textContent = avg === null ? `No entries in the last ${days === 1 ? 'day' : `${days} days`}` : '';
 
   const freq = loggingFrequency30d(points, now);
   dom.freqValue.textContent = `${Math.round(freq.pct)}%`;
   dom.freqNote.textContent = `${freq.daysLogged} of the last ${freq.totalDays} days had an entry`;
   dom.freqMeter.style.width = `${freq.pct}%`;
   dom.freqMeter.parentElement?.setAttribute('aria-label', `${Math.round(freq.pct)}% of days logged`);
+}
+
+/** The Settings page's fields, from the profile. A field being edited is left alone. */
+export function renderSettings(user: UserData): void {
+  for (const btn of dom.unitButtons) btn.setAttribute('aria-pressed', String(btn.dataset.unit === user.unit));
+  for (const btn of dom.themePicker.querySelectorAll<HTMLButtonElement>('button[data-palette]')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.palette === user.settings.palette));
+  }
+  for (const input of dom.settingInputs) {
+    const key = input.dataset.setting as NumberSetting;
+    input.min = String(SETTING_RANGES[key].min);
+    input.max = String(SETTING_RANGES[key].max);
+    if (document.activeElement !== input) input.value = String(user.settings[key]);
+  }
+  dom.slopeMinHint.textContent = `A slope is shown once ${slopeMinDays(user.settings)} of the ${user.settings.slopeDays} days have a weigh-in.`;
+}
+
+/** Shows (or with null, clears) the error line on the Settings page. */
+export function showSettingsError(message: string | null): void {
+  dom.settingsError.textContent = message ?? '';
+  dom.settingsError.hidden = message === null;
 }
 
 let toastTimer: number | undefined;
@@ -150,16 +185,16 @@ export function showToast(message: string): void {
 
 const dayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
-/** Noon on the day of `timestamp`: where a whole-day value (the 10-day average) is plotted. */
+/** Noon on the day of `timestamp`: where a whole-day value (the trailing average) is plotted. */
 const middayOf = (timestamp: number) => new Date(timestamp).setHours(12, 0, 0, 0);
 
-/** Draws the daily weights and the 10-day average on one chart for local days `startDay`..`endDay`. */
+/** Draws the daily weights and the trailing average (days from Settings) on one chart for local days `startDay`..`endDay`. */
 export function renderChart(user: UserData, startDay: number, endDay: number): void {
   const points = pointsIn(user.entries);
   const weights = weightSeries(points, startDay, endDay);
   // The average is only known up to today, so a range ending in the future doesn't draw a flat line into it.
   const now = Date.now();
-  const averages = movingAverageSeries(points, startDay, endDay)
+  const averages = movingAverageSeries(points, startDay, endDay, user.settings.averageDays)
     .filter((p) => p.x <= now)
     .map((p) => ({ ...p, x: middayOf(p.x) }));
 
@@ -169,7 +204,7 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
   dom.chartFigure.hidden = false;
   const series: ChartSeries[] = [
     { label: 'Daily', points: weights, className: 'series-weight', dots: true, smooth: false },
-    { label: '10-day avg', points: averages, className: 'series-average', dots: false, smooth: true },
+    { label: `${user.settings.averageDays}-day avg`, points: averages, className: 'series-average', dots: false, smooth: true },
   ];
   renderLineChart(dom.chartHost, series, from, to, {
     unit: user.unit,
@@ -177,7 +212,7 @@ export function renderChart(user: UserData, startDay: number, endDay: number): v
   });
 }
 
-/** Which chart the weight card shows: weights and the 10-day average, or the 30-day pace. */
+/** Which chart the weight card shows: weights and the trailing average, or the 30-day pace. */
 export type ChartView = 'weight' | 'slope';
 
 /** Selects the Weight or Slope tab and shows that view's legend; the caller then draws the chart. */
@@ -206,7 +241,9 @@ const signed = (n: number) => {
  * `endDay`, with a line at 0: above it is gaining, below it losing.
  */
 export function renderSlopeChart(user: UserData, startDay: number, endDay: number): void {
-  const points = slopeSeries(pointsIn(user.entries), startDay, endDay);
+  const windowDays = user.settings.slopeDays;
+  const minDays = slopeMinDays(user.settings);
+  const points = slopeSeries(pointsIn(user.entries), startDay, endDay, { windowDays, minDays });
   const from = new Date(startDay).setHours(0, 0, 0, 0);
   const to = new Date(endDay).setHours(23, 59, 59, 999);
   dom.chartFigure.hidden = false;
@@ -215,7 +252,7 @@ export function renderSlopeChart(user: UserData, startDay: number, endDay: numbe
     formatX: (x) => dayFormat.format(x),
     formatY: (y) => `${signed(y)} ${user.unit} / ${SLOPE_PER_DAYS} days`,
     zeroLine: true,
-    emptyText: `Not enough weigh-ins yet: the slope needs entries on at least ${SLOPE_MIN_DAYS} of the previous ${SLOPE_WINDOW_DAYS} days.`,
+    emptyText: `Not enough weigh-ins yet: the slope needs entries on at least ${minDays} of the previous ${windowDays} days.`,
   });
 }
 
@@ -318,6 +355,8 @@ export function renderGate(status: UserdataStatus, path: string | null, loggedIn
     };
   }
   dom.folderGate.hidden = gate === null;
+  // Log out is on the Settings page, which the gate hides, so the gate offers it too.
+  dom.gateLogoutBtn.hidden = !loggedIn;
   if (gate) {
     dom.folderGateTitle.textContent = gate.title;
     dom.folderGateText.textContent = gate.text;
@@ -382,42 +421,5 @@ export function confirmChange(opts: { title: string; message: string; lines?: st
   dom.confirmDialog.showModal();
   return new Promise((resolve) => {
     dom.confirmDialog.addEventListener('close', () => resolve(dom.confirmDialog.returnValue === 'confirm'), { once: true });
-  });
-}
-
-/** Where a profile's files are, for the "Edit data" dialog. A file with a `url` opens in a new tab. */
-export interface DataFiles {
-  where: string;
-  files: { label: string; name: string; url?: string }[];
-  how: string;
-}
-
-/** Shows where to edit the data files. Resolves true when the user is done editing and wants a reload. */
-export function showDataFiles(info: DataFiles): Promise<boolean> {
-  dom.editWhere.textContent = info.where;
-  dom.editFiles.replaceChildren(
-    ...info.files.map((f) => {
-      const li = document.createElement('li');
-      li.append(`${f.label}: `);
-      if (f.url) {
-        const link = document.createElement('a');
-        link.href = f.url;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = f.name;
-        li.append(link);
-      } else {
-        const code = document.createElement('code');
-        code.textContent = f.name;
-        li.append(code);
-      }
-      return li;
-    }),
-  );
-  dom.editHow.textContent = info.how;
-  dom.editDialog.returnValue = '';
-  dom.editDialog.showModal();
-  return new Promise((resolve) => {
-    dom.editDialog.addEventListener('close', () => resolve(dom.editDialog.returnValue === 'reload'), { once: true });
   });
 }

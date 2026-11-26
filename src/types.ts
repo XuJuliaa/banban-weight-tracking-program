@@ -1,3 +1,5 @@
+import type { ProfileSettings } from './settings.ts';
+
 export type WeightUnit = 'kg' | 'lb';
 
 /**
@@ -26,6 +28,8 @@ export interface UserData {
   name: string;
   /** The unit every weight is stored, shown and typed in. Switching it converts all entries. */
   unit: WeightUnit;
+  /** Color scheme, trailing-average days and slope settings; saved with the profile in profiles.csv. */
+  settings: ProfileSettings;
   entries: WeightEntry[];
   /** Epoch ms of the last save in this browser. */
   updatedAt?: number;
@@ -45,6 +49,7 @@ export interface FileProfile {
   slug: string;
   name: string;
   unit: WeightUnit;
+  settings: ProfileSettings;
 }
 
 export interface FileProfileData extends FileProfile {

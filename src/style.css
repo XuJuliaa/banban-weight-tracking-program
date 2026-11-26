@@ -503,7 +503,7 @@ button.chip[aria-pressed='true'] { background: var(--accent-soft); border-color:
 code { font-size: 0.85em; }
 
 
-/* Section styles: input sections share one look, plots another, and data/backup stays quiet. */
+/* Section styles: input sections share one look, plots another. */
 .input-card { border-top: 3px solid var(--accent-bright); }
 .input-card h2, .input-card .entry-form > label { color: var(--accent); }
 
@@ -519,12 +519,12 @@ code { font-size: 0.85em; }
 .plot-header .presets { margin: 0; }
 .plot-card .chart { padding-top: 12px; border-top: 1px solid var(--border); }
 
-.quiet-section { padding: 4px 4px 24px; font-size: 0.8rem; color: var(--muted); }
-.quiet-section h2 { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px; }
-.quiet-section p { margin: 0 0 6px; }
-.quiet-section code { font-size: 0.95em; color: var(--text); overflow-wrap: anywhere; }
-.quiet-section .button-row { margin-top: 8px; }
-.quiet-section button { min-height: 32px; padding: 4px 10px; font-size: 0.8rem; font-weight: 500; }
+/* Data & backup, on the Settings page: where the data is saved, folder actions, export and edit. */
+.settings-section { padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.9rem; }
+.settings-section h3 { font-size: 1rem; margin: 0 0 6px; }
+.settings-section p { margin: 0 0 6px; color: var(--muted); }
+.settings-section code { font-size: 0.95em; color: var(--text); overflow-wrap: anywhere; }
+.settings-section .button-row { margin-top: 8px; }
 
 /* Correct a weight: a collapsed section under the weight chart, hidden until opened. */
 .override-details { margin-top: 16px; font-size: 0.9rem; }
@@ -555,9 +555,6 @@ code { font-size: 0.85em; }
 
 /* Import pop-up: per-entry conflict choices */
 
-/* "Edit data" dialog: the data files, with links to the Google Sheets on Drive. */
-.edit-files { margin: 8px 0 12px; padding-left: 20px; display: grid; gap: 6px; }
-.edit-files a, .edit-files code { overflow-wrap: anywhere; }
 
 .tabs {
   display: flex;
@@ -641,6 +638,30 @@ button.google-button:disabled { opacity: 0.6; cursor: progress; transform: none;
 .login-missing p { margin: 0 0 10px; }
 .account-name { color: var(--muted); font-size: 0.95rem; }
 .account-name strong { color: var(--text); }
+
+/* Settings page: one row per setting (label, control, help text), wrapping on phones. */
+.settings-page { display: grid; gap: 8px; }
+.settings-page h2 { margin: 4px 0 0; }
+.settings-page > p { margin: 0; }
+.back-btn { justify-self: start; }
+.settings-list { display: grid; margin-top: 8px; }
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.setting-row > :not(.setting-label) { justify-self: start; }
+.setting-label { font-weight: 600; }
+.setting-help { grid-column: 2; margin: 0; }
+.setting-input { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.setting-input input { width: 88px; color: var(--text); }
+@media (max-width: 520px) {
+  .setting-row { grid-template-columns: 1fr; }
+  .setting-help { grid-column: 1; }
+}
 
 /* Shown instead of the app when the data folder is missing, needs reconnecting, or isn't supported. */
 .folder-gate { border-top: 3px solid var(--accent-bright); }

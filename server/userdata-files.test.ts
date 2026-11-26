@@ -18,6 +18,9 @@ afterEach(async () => {
   await rm(join(dir, '..'), { recursive: true, force: true });
 });
 
+/** Profile list rows without their settings, which have their own tests. */
+const withoutSettings = <T extends { settings?: unknown }>(rows: T[]) => rows.map(({ settings: _settings, ...rest }) => rest);
+
 describe('userdata files', () => {
   it('deletes a profile along with food and exercise files left by older versions', async () => {
     await writeProfile(dir, juju);
@@ -31,7 +34,7 @@ describe('userdata files', () => {
     expect(await writeProfile(dir, juju)).toBe('juju');
     expect((await readdir(dir)).sort()).toEqual(['juju-weight.csv', 'profiles.csv']);
     expect(await readFile(join(dir, 'juju-weight.csv'), 'utf8')).toBe('date,weight_kg\n2026-10-11,70.2\n');
-    expect(await readFile(join(dir, 'profiles.csv'), 'utf8')).toBe('name,unit\nJuju,kg\n');
+    expect(await readFile(join(dir, 'profiles.csv'), 'utf8')).toBe('name,unit,palette,average_days,slope_days,slope_min_pct\nJuju,kg,coral,10,60,30\n');
   });
 
   it('reads a profile back by name, from any browser', async () => {
@@ -45,7 +48,7 @@ describe('userdata files', () => {
   it('treats names that differ only in case or punctuation as the same profile', async () => {
     await writeProfile(dir, juju);
     await writeProfile(dir, { ...juju, name: 'JUJU', entries: [] });
-    expect(await listProfiles(dir)).toEqual([{ slug: 'juju', name: 'JUJU', unit: 'kg' }]);
+    expect(withoutSettings(await listProfiles(dir))).toEqual([{ slug: 'juju', name: 'JUJU', unit: 'kg' }]);
   });
 
   it('reads weight files still in the older single-weight format, as dates in the file\'s unit', async () => {
@@ -75,7 +78,7 @@ describe('userdata files', () => {
   it('lists profiles from profiles.csv plus weight files without a row', async () => {
     await writeProfile(dir, juju);
     await writeFile(join(dir, 'ana-weight.csv'), 'timestamp,weight,unit\n2026-10-11T07:00:00,150,lb\n');
-    expect(await listProfiles(dir)).toEqual([
+    expect(withoutSettings(await listProfiles(dir))).toEqual([
       { slug: 'juju', name: 'Juju', unit: 'kg' },
       { slug: 'ana', name: 'Ana', unit: 'lb' },
     ]);
@@ -86,7 +89,7 @@ describe('userdata files', () => {
     await writeProfile(dir, { ...juju, name: 'Ana' });
     await removeProfile(dir, 'juju');
     expect((await readdir(dir)).sort()).toEqual(['ana-weight.csv', 'profiles.csv']);
-    expect(await listProfiles(dir)).toEqual([{ slug: 'ana', name: 'Ana', unit: 'kg' }]);
+    expect(withoutSettings(await listProfiles(dir))).toEqual([{ slug: 'ana', name: 'Ana', unit: 'kg' }]);
   });
 
   it('migrates id-named files once, merging duplicates per name and keeping the originals', async () => {
@@ -106,7 +109,7 @@ describe('userdata files', () => {
     expect((await readdir(join(dir, '.migrated'))).length).toBe(6);
     const merged = await readProfile(dir, 'juju');
     expect(merged?.entries).toHaveLength(2);
-    expect(await listProfiles(dir)).toEqual([
+    expect(withoutSettings(await listProfiles(dir))).toEqual([
       { slug: 'banban', name: 'Banban', unit: 'kg' },
       { slug: 'juju', name: 'Juju', unit: 'kg' },
     ]);

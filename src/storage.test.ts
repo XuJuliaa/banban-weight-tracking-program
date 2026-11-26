@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_SETTINGS } from './settings';
 import type { FileProfileData, UserData } from './types';
 
 // The browser database, in memory.
@@ -37,10 +38,11 @@ describe('openGoogleProfile', () => {
 
   it("loads the account's Drive files, which win over this browser's copy", async () => {
     const first = (await openGoogleProfile('Juliet', 'juliet@example.com')).user;
-    driveFiles.set('juliet', { slug: 'juliet', name: 'Juliet', unit: 'lb', entries: [entry('a', 60)] });
+    driveFiles.set('juliet', { slug: 'juliet', name: 'Juliet', unit: 'lb', settings: { ...DEFAULT_SETTINGS, averageDays: 7 }, entries: [entry('a', 60)] });
     const { user, existed } = await openGoogleProfile('Juliet', 'juliet@example.com');
     expect(existed).toBe(true);
     expect(user).toMatchObject({ userId: first.userId, unit: 'lb', googleEmail: 'juliet@example.com' });
+    expect(user.settings.averageDays).toBe(7);
     expect(user.entries).toHaveLength(1);
   });
 

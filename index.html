@@ -20,21 +20,10 @@
     <header class="topbar">
       <div class="title-group">
         <h1>BanBan Weight Tracker</h1>
-        <div class="theme-picker" id="theme-picker" role="group" aria-label="Color theme">
-          <button type="button" data-palette="coral" title="Warm coral" aria-label="Warm coral theme" aria-pressed="true"></button>
-          <button type="button" data-palette="blue" title="Ocean blue" aria-label="Ocean blue theme" aria-pressed="false"></button>
-          <button type="button" data-palette="lavender" title="Soft lavender" aria-label="Soft lavender theme" aria-pressed="false"></button>
-          <button type="button" data-palette="mint" title="Fresh mint" aria-label="Fresh mint theme" aria-pressed="false"></button>
-          <button type="button" data-palette="graphite" title="Graphite (black and tinted gray)" aria-label="Graphite theme" aria-pressed="false"></button>
-        </div>
       </div>
       <div class="profile-controls" id="profile-controls" hidden>
         <span class="account-name">Signed in as <strong id="account-name"></strong></span>
-        <div class="unit-toggle" id="unit-toggle" role="group" aria-label="Weight unit">
-          <button type="button" data-unit="kg" aria-pressed="true">kg</button>
-          <button type="button" data-unit="lb" aria-pressed="false">lb</button>
-        </div>
-        <button type="button" class="secondary" id="logout-btn">Log out</button>
+        <button type="button" class="secondary" id="settings-btn" aria-controls="settings-page">Settings</button>
       </div>
     </header>
 
@@ -45,6 +34,7 @@
         <div class="button-row">
           <button type="button" id="folder-gate-btn"></button>
           <button type="button" class="drive-button" id="drive-gate-btn" hidden></button>
+          <button type="button" class="secondary" id="gate-logout-btn" hidden>Log out</button>
         </div>
       </section>
 
@@ -121,7 +111,7 @@
 
         <section class="stats">
           <div class="card stat">
-            <span class="stat-label">10-day average</span>
+            <span class="stat-label" id="avg-label">10-day average</span>
             <span class="stat-value" id="avg-value">—</span>
             <span class="muted small" id="avg-note"></span>
           </div>
@@ -148,7 +138,7 @@
           <figure class="chart" id="chart-figure" role="tabpanel" aria-labelledby="chart-tab-weight">
             <div class="chart-legend" id="weight-legend">
               <span><i class="chart-swatch series-weight"></i>Daily</span>
-              <span><i class="chart-swatch series-average"></i>10-day average</span>
+              <span><i class="chart-swatch series-average"></i><span id="average-legend-label">10-day average</span></span>
             </div>
             <div class="chart-legend" id="slope-legend" hidden>
               <span><i class="chart-swatch series-slope"></i>30-day pace</span>
@@ -176,10 +166,65 @@
             </div>
           </details>
         </section>
+      </div>
 
+      <section class="card settings-page" id="settings-page" aria-labelledby="settings-title" hidden>
+        <button type="button" class="secondary back-btn" id="settings-back-btn">← Back to tracker</button>
+        <h2 id="settings-title">Settings</h2>
+        <p class="muted small">Saved with your profile, so they follow you to any browser or device.</p>
 
-        <section class="quiet-section">
-          <h2>Data &amp; backup</h2>
+        <div class="settings-list">
+          <div class="setting-row">
+            <span class="setting-label" id="settings-palette-label">Color scheme</span>
+            <div class="theme-picker" id="theme-picker" role="group" aria-labelledby="settings-palette-label">
+              <button type="button" data-palette="coral" title="Warm coral" aria-label="Warm coral theme" aria-pressed="true"></button>
+              <button type="button" data-palette="blue" title="Ocean blue" aria-label="Ocean blue theme" aria-pressed="false"></button>
+              <button type="button" data-palette="lavender" title="Soft lavender" aria-label="Soft lavender theme" aria-pressed="false"></button>
+              <button type="button" data-palette="mint" title="Fresh mint" aria-label="Fresh mint theme" aria-pressed="false"></button>
+              <button type="button" data-palette="graphite" title="Graphite (black and tinted gray)" aria-label="Graphite theme" aria-pressed="false"></button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <span class="setting-label" id="settings-unit-label">Unit</span>
+            <div class="unit-toggle" id="unit-toggle" role="group" aria-labelledby="settings-unit-label">
+              <button type="button" data-unit="kg" aria-pressed="true">kg</button>
+              <button type="button" data-unit="lb" aria-pressed="false">lb</button>
+            </div>
+            <p class="muted small setting-help">Switching converts every saved weight to the new unit.</p>
+          </div>
+
+          <div class="setting-row">
+            <label class="setting-label" for="setting-average-days">Trailing average</label>
+            <span class="setting-input">
+              <input type="number" id="setting-average-days" data-setting="averageDays" inputmode="numeric" step="1" required />
+              <span>days</span>
+            </span>
+            <p class="muted small setting-help">Used for the average card and the average line on the weight chart.</p>
+          </div>
+
+          <div class="setting-row">
+            <label class="setting-label" for="setting-slope-days">Slope window</label>
+            <span class="setting-input">
+              <input type="number" id="setting-slope-days" data-setting="slopeDays" inputmode="numeric" step="1" required />
+              <span>days</span>
+            </span>
+            <p class="muted small setting-help">Each point on the Slope chart is a straight-line fit over this many days.</p>
+          </div>
+
+          <div class="setting-row">
+            <label class="setting-label" for="setting-slope-min-pct">Slope needs</label>
+            <span class="setting-input">
+              <input type="number" id="setting-slope-min-pct" data-setting="slopeMinPct" inputmode="numeric" step="1" required />
+              <span>% of days logged</span>
+            </span>
+            <p class="muted small setting-help" id="slope-min-hint"></p>
+          </div>
+        </div>
+        <p class="form-error" id="settings-error" role="alert" hidden></p>
+
+        <section class="settings-section" aria-labelledby="data-backup-title">
+          <h3 id="data-backup-title">Data &amp; backup</h3>
           <p id="folder-status"></p>
           <div class="button-row folder-actions" id="folder-actions" hidden>
             <button type="button" class="secondary" id="choose-folder-btn">Choose data folder…</button>
@@ -189,15 +234,20 @@
             <button type="button" class="secondary" id="sign-out-drive-btn">Sign out of Google Drive</button>
           </div>
           <p>
-            Export downloads your weight data as a CSV file, as a backup. To add or fix entries in bulk, edit the
-            file in your data folder directly.
+            Upload replaces all your weigh-ins with the file's. It needs the same columns as a download:
+            <code>date,weight_kg</code> or <code>date,weight_lb</code>.
           </p>
           <div class="button-row">
-            <button type="button" class="secondary" id="export-btn">Export data (.csv)</button>
-            <button type="button" class="secondary" id="edit-data-btn">Edit data…</button>
+            <button type="button" class="secondary" id="download-btn">Download data</button>
+            <button type="button" class="secondary" id="upload-btn">Upload data</button>
+            <input type="file" id="upload-input" accept=".csv,text/csv" hidden />
           </div>
         </section>
-      </div>
+
+        <div class="button-row">
+          <button type="button" class="secondary" id="logout-btn">Log out</button>
+        </div>
+      </section>
     </main>
 
     <footer class="site-footer">
@@ -207,23 +257,6 @@
       <span aria-hidden="true">·</span>
       <a href="https://github.com/XuJuliaa/banban-weight-tracking-program">Source code</a>
     </footer>
-
-    <dialog id="edit-dialog" class="confirm-dialog" aria-labelledby="edit-title">
-      <form method="dialog">
-        <h2 id="edit-title">Edit your data</h2>
-        <p id="edit-where"></p>
-        <ul id="edit-files" class="edit-files"></ul>
-        <p id="edit-how" class="muted small"></p>
-        <p class="muted small">
-          Keep the header row. Write dates as <code>YYYY-MM-DD HH:MM</code>, e.g. <code>2026-11-13 07:30</code>.
-          Rows the app can't read are left out.
-        </p>
-        <div class="button-row">
-          <button type="submit" value="reload" id="edit-reload">I'm done, reload</button>
-          <button type="submit" value="close" class="secondary" formnovalidate autofocus>Close</button>
-        </div>
-      </form>
-    </dialog>
 
     <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
       <form method="dialog">
